@@ -67,34 +67,63 @@ async function handleMessageEvent(event: any): Promise<void> {
   if (filesnamesMissingAltText.length > 0) {
     console.log(`[Message Handler] Found ${filesnamesMissingAltText.length} image(s) missing alt text, starting alt text generation`);
     
-    // Generate alt text suggestions for each image
+    // Generate alt text suggestions for each image with overall timeout protection
     const altTextSuggestions = new Map<string, string | null>();
     const generationStartTime = Date.now();
+    const MAX_GENERATION_TIME = 20000; // 20 seconds max for all generation work
     let successCount = 0;
     let failureCount = 0;
     
-    for (const file of imagesMissingAltText) {
-      const imageUrl = file.url_private || file.url_private_download;
-      if (imageUrl) {
-        console.log(`[Message Handler] Processing image ${altTextSuggestions.size + 1}/${imagesMissingAltText.length}: ${file.name}`);
-        const suggestion = await generateAltTextSuggestion(
-          imageUrl,
-          file.name,
-          SLACK_TOKEN
-        );
-        altTextSuggestions.set(file.name, suggestion);
-        if (suggestion) {
-          successCount++;
-          console.log(`[Message Handler] ✓ Successfully generated suggestion for ${file.name}`);
+    // Wrap generation in a timeout to ensure we don't hang forever
+    const generationPromise = (async () => {
+      for (const file of imagesMissingAltText) {
+        const elapsed = Date.now() - generationStartTime;
+        if (elapsed > MAX_GENERATION_TIME) {
+          console.warn(`[Message Handler] Generation timeout approaching (${elapsed}ms), stopping generation`);
+          break;
+        }
+        
+        const imageUrl = file.url_private || file.url_private_download;
+        if (imageUrl) {
+          console.log(`[Message Handler] Processing image ${altTextSuggestions.size + 1}/${imagesMissingAltText.length}: ${file.name}`);
+          try {
+            const suggestion = await generateAltTextSuggestion(
+              imageUrl,
+              file.name,
+              SLACK_TOKEN
+            );
+            altTextSuggestions.set(file.name, suggestion);
+            if (suggestion) {
+              successCount++;
+              console.log(`[Message Handler] ✓ Successfully generated suggestion for ${file.name}`);
+            } else {
+              failureCount++;
+              console.log(`[Message Handler] ✗ Failed to generate suggestion for ${file.name}`);
+            }
+          } catch (error) {
+            failureCount++;
+            console.error(`[Message Handler] ✗ Exception generating suggestion for ${file.name}:`, error);
+            altTextSuggestions.set(file.name, null);
+          }
         } else {
           failureCount++;
-          console.log(`[Message Handler] ✗ Failed to generate suggestion for ${file.name}`);
+          console.warn(`[Message Handler] ✗ No image URL found for file: ${file.name}`);
+          altTextSuggestions.set(file.name, null);
         }
-      } else {
-        failureCount++;
-        console.warn(`[Message Handler] ✗ No image URL found for file: ${file.name}`);
-        altTextSuggestions.set(file.name, null);
       }
+    })();
+    
+    // Wait for generation with timeout
+    try {
+      await Promise.race([
+        generationPromise,
+        new Promise((resolve) => setTimeout(() => {
+          console.warn(`[Message Handler] Generation timeout after ${MAX_GENERATION_TIME}ms, proceeding with available results`);
+          resolve(null);
+        }, MAX_GENERATION_TIME))
+      ]);
+    } catch (error) {
+      console.error(`[Message Handler] Error during generation:`, error);
     }
 
     const generationTime = Date.now() - generationStartTime;

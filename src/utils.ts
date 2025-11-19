@@ -27,6 +27,27 @@ export async function generateAltTextSuggestion(
   const delay = (duration: number) =>
     new Promise((resolve) => setTimeout(resolve, duration));
 
+  // Helper function to add timeout to fetch
+  const fetchWithTimeout = async (url: string, options: RequestInit, timeoutMs: number = 30000): Promise<Response> => {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+    
+    try {
+      const response = await fetch(url, {
+        ...options,
+        signal: controller.signal,
+      });
+      clearTimeout(timeoutId);
+      return response;
+    } catch (error) {
+      clearTimeout(timeoutId);
+      if (error instanceof Error && error.name === 'AbortError') {
+        throw new Error(`Request timeout after ${timeoutMs}ms`);
+      }
+      throw error;
+    }
+  };
+
   const attemptRequest = async (retries = 3): Promise<string | null> => {
     const attemptStartTime = Date.now();
     const attemptNumber = 4 - retries;
@@ -35,13 +56,17 @@ export async function generateAltTextSuggestion(
       console.log(`[Alt Text Generation] Attempt ${attemptNumber}/3 for ${fileName}`);
       console.log(`[Alt Text Generation] Downloading image from Slack: ${imageUrl.substring(0, 50)}...`);
       
-      // Download image from Slack with authentication
+      // Download image from Slack with authentication (20 second timeout)
       const downloadStartTime = Date.now();
-      const imageResponse = await fetch(imageUrl, {
-        headers: {
-          Authorization: `Bearer ${slackToken}`,
+      const imageResponse = await fetchWithTimeout(
+        imageUrl,
+        {
+          headers: {
+            Authorization: `Bearer ${slackToken}`,
+          },
         },
-      });
+        20000 // 20 second timeout (must complete before function timeout)
+      );
 
       const downloadTime = Date.now() - downloadStartTime;
       console.log(`[Alt Text Generation] Image download completed in ${downloadTime}ms, status: ${imageResponse.status}`);
@@ -83,14 +108,18 @@ export async function generateAltTextSuggestion(
       console.log(`[Alt Text Generation] Payload: fileName=${fileName}, model=${payload.model}, backend=${payload.backend}`);
       
       const apiStartTime = Date.now();
-      const response = await fetch(ALT_TEXT_API_URL, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'X-API-Key': ALT_TEXT_API_KEY,
+      const response = await fetchWithTimeout(
+        ALT_TEXT_API_URL,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'X-API-Key': ALT_TEXT_API_KEY,
+          },
+          body: JSON.stringify(payload),
         },
-        body: JSON.stringify(payload),
-      });
+        20000 // 20 second timeout for API call (must complete before function timeout)
+      );
 
       const apiTime = Date.now() - apiStartTime;
       console.log(`[Alt Text Generation] API response received in ${apiTime}ms, status: ${response.status}`);
@@ -124,17 +153,27 @@ export async function generateAltTextSuggestion(
     } catch (error) {
       const attemptTime = Date.now() - attemptStartTime;
       const errorMessage = error instanceof Error ? error.message : String(error);
+      const isTimeout = errorMessage.includes('timeout') || errorMessage.includes('AbortError');
+      
       console.error(`[Alt Text Generation] ✗ Error generating alt text for ${fileName} (attempt ${attemptNumber} took ${attemptTime}ms):`, errorMessage);
       
-      if (retries > 0 && errorMessage.includes('429')) {
-        console.log(`[Alt Text Generation] Rate limit error detected, retrying in 10 seconds... (${retries} retries remaining)`);
-        await delay(10000);
+      if (isTimeout) {
+        console.error(`[Alt Text Generation] Request timeout detected - this may be due to slow network or large image size`);
+      }
+      
+      if (retries > 0 && (errorMessage.includes('429') || isTimeout)) {
+        const retryDelay = isTimeout ? 5000 : 10000; // Shorter delay for timeouts
+        console.log(`[Alt Text Generation] Retrying in ${retryDelay / 1000} seconds... (${retries} retries remaining)`);
+        await delay(retryDelay);
         return attemptRequest(retries - 1);
       }
       
       if (retries === 0) {
         const totalTime = Date.now() - startTime;
         console.error(`[Alt Text Generation] ✗ Failed to generate alt text for ${fileName} after all retries (total time: ${totalTime}ms)`);
+        if (isTimeout) {
+          console.error(`[Alt Text Generation] Final failure due to timeout - consider using smaller images or increasing function timeout`);
+        }
       }
       
       return null;
