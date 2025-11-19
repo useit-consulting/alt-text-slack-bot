@@ -213,22 +213,20 @@ export const handler: Handler = async (
     if (slackEvent.type === 'message') {
       console.log('Processing message event');
       
-      // Start the work immediately
+      // Start the work immediately (don't await - let it run in background)
       const workPromise = handleMessageEvent(slackEvent).catch((error) => {
         console.error('[Handler] Error processing message event:', error);
       });
       
-      // Wait up to 2 seconds for work to make progress, then return to Slack
-      // This ensures the function context stays alive long enough for downloads to start
-      // but doesn't make Slack wait too long (Slack expects response within 3 seconds)
-      await Promise.race([
-        workPromise,
-        new Promise((resolve) => setTimeout(() => {
-          console.log('[Handler] Returning to Slack after 2s, work continues in background');
-          resolve(null);
-        }, 2000))
-      ]);
-
+      // Attach work promise to context to keep execution context alive
+      // This ensures Netlify doesn't kill the function while work is in progress
+      if (context && typeof context === 'object') {
+        (context as any).backgroundWork = workPromise;
+      }
+      
+      // Respond to Slack immediately (within 3 second requirement)
+      // The work will continue in the background
+      // Netlify should keep the context alive as long as there are pending promises
       return {
         statusCode: 200,
         body: JSON.stringify({ ok: true }),

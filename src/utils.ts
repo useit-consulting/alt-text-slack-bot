@@ -129,26 +129,50 @@ export async function generateAltTextSuggestion(
       const processStartTime = Date.now();
       
       if (isThumbnail) {
-        // Thumbnails are already resized, but we might still want to ensure max size
-        // Check if image is already small enough (under 1MB)
-        if (originalSize < 1024 * 1024) {
-          console.log(`[Alt Text Generation] Thumbnail is already small (${(originalSize / 1024).toFixed(2)} KB), using as-is`);
+        // Thumbnails are already resized and optimized by Slack
+        // For thumbnails under 3MB, use as-is to avoid making them larger
+        if (originalSize < 3 * 1024 * 1024) {
+          console.log(`[Alt Text Generation] Thumbnail is already optimized (${(originalSize / 1024).toFixed(2)} KB), using as-is`);
           processedImageBuffer = imageBuffer;
         } else {
-          // Thumbnail is still large, resize to max 800px
-          console.log(`[Alt Text Generation] Thumbnail is large, resizing to max 800px`);
-          processedImageBuffer = await sharp(imageBuffer).resize(800, null, { withoutEnlargement: true }).toBuffer();
+          // Thumbnail is very large, try to compress it
+          console.log(`[Alt Text Generation] Thumbnail is very large, attempting compression`);
+          try {
+            const compressed = await sharp(imageBuffer)
+              .resize(800, null, { withoutEnlargement: true })
+              .jpeg({ quality: 80, mozjpeg: true })
+              .toBuffer();
+            
+            // Only use compressed version if it's actually smaller
+            if (compressed.length < originalSize) {
+              processedImageBuffer = compressed;
+            } else {
+              console.log(`[Alt Text Generation] Compression didn't reduce size, using original`);
+              processedImageBuffer = imageBuffer;
+            }
+          } catch (error) {
+            console.warn(`[Alt Text Generation] Compression failed, using original:`, error);
+            processedImageBuffer = imageBuffer;
+          }
         }
       } else {
-        // Full-size image, resize to 800px
-        console.log(`[Alt Text Generation] Processing full-size image: resizing to 800px`);
-        processedImageBuffer = await sharp(imageBuffer).resize(800, null, { withoutEnlargement: true }).toBuffer();
+        // Full-size image, resize and compress
+        console.log(`[Alt Text Generation] Processing full-size image: resizing to 800px and compressing`);
+        processedImageBuffer = await sharp(imageBuffer)
+          .resize(800, null, { withoutEnlargement: true })
+          .jpeg({ quality: 85, mozjpeg: true })
+          .toBuffer();
       }
       
       const processedSize = processedImageBuffer.length;
       const processTime = Date.now() - processStartTime;
-      if (processedSize !== originalSize) {
-        console.log(`[Alt Text Generation] Image processed in ${processTime}ms, processed size: ${(processedSize / 1024).toFixed(2)} KB (${((1 - processedSize / originalSize) * 100).toFixed(1)}% reduction)`);
+      if (processedSize < originalSize) {
+        const reduction = ((1 - processedSize / originalSize) * 100).toFixed(1);
+        console.log(`[Alt Text Generation] Image processed in ${processTime}ms, processed size: ${(processedSize / 1024).toFixed(2)} KB (${reduction}% reduction)`);
+      } else if (processedSize > originalSize) {
+        const increase = ((processedSize / originalSize - 1) * 100).toFixed(1);
+        console.log(`[Alt Text Generation] Image processed in ${processTime}ms, but size increased to ${(processedSize / 1024).toFixed(2)} KB (+${increase}%), using original`);
+        processedImageBuffer = imageBuffer; // Use original if processing made it larger
       } else {
         console.log(`[Alt Text Generation] Image processed in ${processTime}ms, using original size: ${(processedSize / 1024).toFixed(2)} KB`);
       }
