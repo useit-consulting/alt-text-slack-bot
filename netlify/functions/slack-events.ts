@@ -1,7 +1,7 @@
 import { Handler, HandlerEvent, HandlerContext } from '@netlify/functions';
 import { createHmac } from 'crypto';
 import { WebClient, ChatPostEphemeralArguments } from '@slack/web-api';
-import { generateResponseText, getImageNamesWithMissingAltText, getImagesWithMissingAltText, generateAltTextSuggestion } from '../../src/utils';
+import { generateResponseText, getImageNamesWithMissingAltText, getImagesWithMissingAltText, generateAltTextSuggestion, getBestThumbnailUrl } from '../../src/utils';
 
 const SLACK_TOKEN = process.env.SLACK_TOKEN;
 const SLACK_SIGNING_SECRET = process.env.SLACK_SIGNING_SECRET;
@@ -83,14 +83,17 @@ async function handleMessageEvent(event: any): Promise<void> {
           break;
         }
         
-        const imageUrl = file.url_private || file.url_private_download;
+        const imageUrl = getBestThumbnailUrl(file);
         if (imageUrl) {
-          console.log(`[Message Handler] Processing image ${altTextSuggestions.size + 1}/${imagesMissingAltText.length}: ${file.name}`);
+          // Thumbnails have URLs like files-tmb, full-size images have files-pri
+          const isThumbnail = imageUrl.includes('files-tmb');
+          console.log(`[Message Handler] Processing image ${altTextSuggestions.size + 1}/${imagesMissingAltText.length}: ${file.name} (using ${isThumbnail ? 'thumbnail' : 'full-size'})`);
           try {
             const suggestion = await generateAltTextSuggestion(
               imageUrl,
               file.name,
-              SLACK_TOKEN
+              SLACK_TOKEN,
+              isThumbnail
             );
             altTextSuggestions.set(file.name, suggestion);
             if (suggestion) {

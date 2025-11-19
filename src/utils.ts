@@ -6,15 +6,17 @@ const ALT_TEXT_API_KEY = process.env.ALT_TEXT_GENERATION_API_KEY;
 /**
  * Downloads an image from Slack and generates an alt text suggestion
  *
- * @param {string} imageUrl The private URL of the image from Slack
+ * @param {string} imageUrl The URL of the image from Slack (thumbnail or full-size)
  * @param {string} fileName The name of the file
  * @param {string} slackToken The Slack bot token for authentication
+ * @param {boolean} isThumbnail Whether the URL is a pre-resized thumbnail (optimizes processing)
  * @return {Promise<string | null>} The generated alt text or null if generation fails
  */
 export async function generateAltTextSuggestion(
   imageUrl: string,
   fileName: string,
-  slackToken: string
+  slackToken: string,
+  isThumbnail: boolean = false
 ): Promise<string | null> {
   const startTime = Date.now();
   console.log(`[Alt Text Generation] Starting alt text generation for file: ${fileName}`);
@@ -79,17 +81,38 @@ export async function generateAltTextSuggestion(
 
       const imageBuffer = Buffer.from(await imageResponse.arrayBuffer());
       const originalSize = imageBuffer.length;
-      console.log(`[Alt Text Generation] Downloaded image size: ${(originalSize / 1024).toFixed(2)} KB`);
+      console.log(`[Alt Text Generation] Downloaded image size: ${(originalSize / 1024).toFixed(2)} KB (thumbnail: ${isThumbnail})`);
 
-      // Resize image to 800px and convert to base64
-      console.log(`[Alt Text Generation] Processing image: resizing to 800px and converting to base64`);
+      // Process image: if it's already a thumbnail, we might skip resize or do minimal processing
+      let processedImageBuffer: Buffer;
       const processStartTime = Date.now();
-      const resizedImageBuffer = await sharp(imageBuffer).resize(800).toBuffer();
-      const processedSize = resizedImageBuffer.length;
-      const processTime = Date.now() - processStartTime;
-      console.log(`[Alt Text Generation] Image processed in ${processTime}ms, resized size: ${(processedSize / 1024).toFixed(2)} KB (${((1 - processedSize / originalSize) * 100).toFixed(1)}% reduction)`);
       
-      const imageBase64 = resizedImageBuffer.toString('base64');
+      if (isThumbnail) {
+        // Thumbnails are already resized, but we might still want to ensure max size
+        // Check if image is already small enough (under 1MB)
+        if (originalSize < 1024 * 1024) {
+          console.log(`[Alt Text Generation] Thumbnail is already small (${(originalSize / 1024).toFixed(2)} KB), using as-is`);
+          processedImageBuffer = imageBuffer;
+        } else {
+          // Thumbnail is still large, resize to max 800px
+          console.log(`[Alt Text Generation] Thumbnail is large, resizing to max 800px`);
+          processedImageBuffer = await sharp(imageBuffer).resize(800, null, { withoutEnlargement: true }).toBuffer();
+        }
+      } else {
+        // Full-size image, resize to 800px
+        console.log(`[Alt Text Generation] Processing full-size image: resizing to 800px`);
+        processedImageBuffer = await sharp(imageBuffer).resize(800, null, { withoutEnlargement: true }).toBuffer();
+      }
+      
+      const processedSize = processedImageBuffer.length;
+      const processTime = Date.now() - processStartTime;
+      if (processedSize !== originalSize) {
+        console.log(`[Alt Text Generation] Image processed in ${processTime}ms, processed size: ${(processedSize / 1024).toFixed(2)} KB (${((1 - processedSize / originalSize) * 100).toFixed(1)}% reduction)`);
+      } else {
+        console.log(`[Alt Text Generation] Image processed in ${processTime}ms, using original size: ${(processedSize / 1024).toFixed(2)} KB`);
+      }
+      
+      const imageBase64 = processedImageBuffer.toString('base64');
       const base64Size = imageBase64.length;
       console.log(`[Alt Text Generation] Base64 encoded size: ${(base64Size / 1024).toFixed(2)} KB`);
 
@@ -205,6 +228,41 @@ export const getImagesWithMissingAltText = (files: any[]): any[] => {
   return files.filter((file: any) => {
     return(file.mimetype.includes('image') && file.alt_txt === undefined)
   })
+}
+
+/**
+ * Selects the best thumbnail URL from a Slack file object
+ * Prefers smaller pre-resized thumbnails over the full-size image for faster downloads
+ *
+ * @param {any} file A file object from the Slack API
+ * @return {string | null} The best thumbnail URL to use, or null if none available
+ */
+export const getBestThumbnailUrl = (file: any): string | null => {
+  // Prefer thumb_800 (matches our target resize size), then fall back to smaller ones
+  // Order: thumb_800 > thumb_720 > thumb_480 > thumb_360 > full size
+  if (file.thumb_800) {
+    console.log(`[Thumbnail Selection] Using thumb_800 for ${file.name}`);
+    return file.thumb_800;
+  }
+  if (file.thumb_720) {
+    console.log(`[Thumbnail Selection] Using thumb_720 for ${file.name}`);
+    return file.thumb_720;
+  }
+  if (file.thumb_480) {
+    console.log(`[Thumbnail Selection] Using thumb_480 for ${file.name}`);
+    return file.thumb_480;
+  }
+  if (file.thumb_360) {
+    console.log(`[Thumbnail Selection] Using thumb_360 for ${file.name}`);
+    return file.thumb_360;
+  }
+  // Fall back to full-size image as last resort
+  if (file.url_private || file.url_private_download) {
+    console.log(`[Thumbnail Selection] No thumbnail available, using full-size image for ${file.name}`);
+    return file.url_private || file.url_private_download;
+  }
+  console.warn(`[Thumbnail Selection] No image URL found for ${file.name}`);
+  return null;
 }
 
 /**
