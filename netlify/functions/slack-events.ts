@@ -1,7 +1,7 @@
 import { Handler, HandlerEvent, HandlerContext } from '@netlify/functions';
 import { createHmac } from 'crypto';
 import { WebClient, ChatPostEphemeralArguments } from '@slack/web-api';
-import { generateResponseText, getImageNamesWithMissingAltText } from '../../src/utils';
+import { generateResponseText, getImageNamesWithMissingAltText, getImagesWithMissingAltText, generateAltTextSuggestion } from '../../src/utils';
 
 const SLACK_TOKEN = process.env.SLACK_TOKEN;
 const SLACK_SIGNING_SECRET = process.env.SLACK_SIGNING_SECRET;
@@ -57,6 +57,7 @@ async function handleMessageEvent(event: any): Promise<void> {
   
   console.log('Files in event:', JSON.stringify(event.files, null, 2));
   
+  const imagesMissingAltText = getImagesWithMissingAltText(event.files);
   const filesnamesMissingAltText: string[] = getImageNamesWithMissingAltText(
     event.files
   );
@@ -64,25 +65,66 @@ async function handleMessageEvent(event: any): Promise<void> {
   console.log('Images missing alt text:', filesnamesMissingAltText);
 
   if (filesnamesMissingAltText.length > 0) {
+    console.log(`[Message Handler] Found ${filesnamesMissingAltText.length} image(s) missing alt text, starting alt text generation`);
+    
+    // Generate alt text suggestions for each image
+    const altTextSuggestions = new Map<string, string | null>();
+    const generationStartTime = Date.now();
+    let successCount = 0;
+    let failureCount = 0;
+    
+    for (const file of imagesMissingAltText) {
+      const imageUrl = file.url_private || file.url_private_download;
+      if (imageUrl) {
+        console.log(`[Message Handler] Processing image ${altTextSuggestions.size + 1}/${imagesMissingAltText.length}: ${file.name}`);
+        const suggestion = await generateAltTextSuggestion(
+          imageUrl,
+          file.name,
+          SLACK_TOKEN
+        );
+        altTextSuggestions.set(file.name, suggestion);
+        if (suggestion) {
+          successCount++;
+          console.log(`[Message Handler] ✓ Successfully generated suggestion for ${file.name}`);
+        } else {
+          failureCount++;
+          console.log(`[Message Handler] ✗ Failed to generate suggestion for ${file.name}`);
+        }
+      } else {
+        failureCount++;
+        console.warn(`[Message Handler] ✗ No image URL found for file: ${file.name}`);
+        altTextSuggestions.set(file.name, null);
+      }
+    }
+
+    const generationTime = Date.now() - generationStartTime;
+    console.log(`[Message Handler] Alt text generation completed in ${generationTime}ms`);
+    console.log(`[Message Handler] Summary: ${successCount} successful, ${failureCount} failed out of ${imagesMissingAltText.length} total`);
+
+    const responseText = generateResponseText(event.files.length, filesnamesMissingAltText, altTextSuggestions);
+    const hasSuggestions = successCount > 0;
+    console.log(`[Message Handler] Generated response text (${responseText.length} chars, includes suggestions: ${hasSuggestions})`);
+
     const parameters: ChatPostEphemeralArguments = {
       channel: event.channel,
       user: event.user,
-      text: generateResponseText(event.files.length, filesnamesMissingAltText),
+      text: responseText,
     };
 
     if (event.thread_ts) {
       parameters.thread_ts = event.thread_ts;
+      console.log(`[Message Handler] Message will be sent in thread: ${event.thread_ts}`);
     }
 
     try {
-      console.log('Sending ephemeral message with parameters:', JSON.stringify(parameters, null, 2));
+      console.log(`[Message Handler] Sending ephemeral message to user ${event.user} in channel ${event.channel}`);
       await web.chat.postEphemeral(parameters);
-      console.log('Ephemeral message sent successfully');
+      console.log(`[Message Handler] ✓ Ephemeral message sent successfully`);
     } catch (error) {
-      console.error('Error sending ephemeral message:', error);
+      console.error(`[Message Handler] ✗ Error sending ephemeral message:`, error);
     }
   } else {
-    console.log('No images missing alt text, not sending message');
+    console.log('[Message Handler] No images missing alt text, not sending message');
   }
 }
 

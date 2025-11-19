@@ -9,13 +9,18 @@
     "test": "jest"
   },
   "prettier": "@github/prettier-config",
-  "keywords": ["accessibility", "slack", "slackbot"],
+  "keywords": [
+    "accessibility",
+    "slack",
+    "slackbot"
+  ],
   "author": "@khiga8",
   "license": "MIT",
   "dependencies": {
     "@netlify/functions": "^2.4.0",
     "@slack/events-api": "^3.0.1",
-    "@slack/web-api": "^6.7.1"
+    "@slack/web-api": "^6.7.1",
+    "sharp": "^0.33.0"
   },
   "devDependencies": {
     "@github/prettier-config": "0.0.4",

@@ -1,6 +1,6 @@
 # alt-text-slack-bot
 
-`alt-text-slack-bot` aims to encourage accessible image sharing in a Slack workspace. When configured and added to a workspace, this Slack bot will detect when an image file has been shared in a channel without alternative text. It will send a friendly reminder that can only be seen by the user who posted the image along with instructions on how to add the alternative text.
+`alt-text-slack-bot` aims to encourage accessible image sharing in a Slack workspace. When configured and added to a workspace, this Slack bot will detect when an image file has been shared in a channel without alternative text. It will send a friendly reminder that can only be seen by the user who posted the image along with instructions on how to add the alternative text. Optionally, the bot can also generate AI-powered alt text suggestions to make it even easier for users to add accessible descriptions.
 
 <img width="500" alt="Screenshot of a message on Slack from a bot that says `Uh oh! The image you shared is missing alt text` along with how to add alt text, in response to an image I sent. The bot message has a note, `Only visible to you`." src="https://user-images.githubusercontent.com/16447748/167228612-b0caa58e-6741-4f93-acd5-51b73a0cfbb7.png">
 
@@ -68,6 +68,7 @@ This bot is configured to deploy as a serverless function on Netlify. Follow the
 6. Click **Show advanced** and add environment variables:
    - `SLACK_TOKEN` - Your Bot User OAuth Token (from Step 2)
    - `SLACK_SIGNING_SECRET` - Your Signing Secret (from Step 4)
+   - `ALT_TEXT_GENERATION_API_KEY` - API key for the alt text generation service (optional, but required for suggestions)
 7. Click **Deploy site**
 
 #### Option B: Deploy via Netlify CLI
@@ -79,6 +80,7 @@ This bot is configured to deploy as a serverless function on Netlify. Follow the
    ```bash
    netlify env:set SLACK_TOKEN "xoxb-your-token-here"
    netlify env:set SLACK_SIGNING_SECRET "your-signing-secret-here"
+   netlify env:set ALT_TEXT_GENERATION_API_KEY "your-api-key-here"
    ```
 5. Deploy: `netlify deploy --prod`
 
@@ -113,6 +115,7 @@ To test the bot locally before deploying:
    ```bash
    export SLACK_TOKEN="xoxb-your-token-here"
    export SLACK_SIGNING_SECRET="your-signing-secret-here"
+   export ALT_TEXT_GENERATION_API_KEY="your-api-key-here"
    ```
 4. Use a tool like [ngrok](https://ngrok.com/) to expose your local server:
    ```bash
@@ -134,6 +137,9 @@ The following environment variables must be set in Netlify:
 - `SLACK_TOKEN`: Bot User OAuth Token from the **OAuth and Permissions** tab (starts with `xoxb-`).
   - ⚠️ **Not the Client Secret** - Make sure you're copying the "Bot User OAuth Token", not the "Client Secret"
 - `SLACK_SIGNING_SECRET`: Signing secret from the **Basic Information** tab (under App Credentials).
+- `ALT_TEXT_GENERATION_API_KEY`: API key for the alt text generation service (optional).
+  - If not set, the bot will still send reminders but won't generate alt text suggestions.
+  - The bot will gracefully handle API failures and still send reminders without suggestions.
 
 ## Tips
 
@@ -141,3 +147,5 @@ The following environment variables must be set in Netlify:
 - Customize the bot message by updating `src/utils.ts`.
 - The bot sends ephemeral messages (only visible to the user who posted the image) to avoid cluttering channels.
 - The bot automatically handles threaded messages and will respond in the same thread.
+- Alt text suggestions are generated in Swedish and are formatted as copyable code blocks in the message.
+- If the alt text generation API fails or the API key is not set, the bot will still send reminders without suggestions.
