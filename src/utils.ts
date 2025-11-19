@@ -32,18 +32,28 @@ export async function generateAltTextSuggestion(
   // Helper function to add timeout to fetch
   const fetchWithTimeout = async (url: string, options: RequestInit, timeoutMs: number = 30000): Promise<Response> => {
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+    const timeoutId = setTimeout(() => {
+      console.log(`[Alt Text Generation] Fetch timeout triggered after ${timeoutMs}ms, aborting request`);
+      controller.abort();
+    }, timeoutMs);
     
     try {
+      console.log(`[Alt Text Generation] Starting fetch request with ${timeoutMs}ms timeout`);
+      const fetchStartTime = Date.now();
       const response = await fetch(url, {
         ...options,
         signal: controller.signal,
       });
+      const fetchTime = Date.now() - fetchStartTime;
       clearTimeout(timeoutId);
+      console.log(`[Alt Text Generation] Fetch completed in ${fetchTime}ms`);
       return response;
     } catch (error) {
       clearTimeout(timeoutId);
-      if (error instanceof Error && error.name === 'AbortError') {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      const errorName = error instanceof Error ? error.name : 'Unknown';
+      console.error(`[Alt Text Generation] Fetch error: ${errorName} - ${errorMessage}`);
+      if (errorName === 'AbortError' || errorMessage.includes('aborted')) {
         throw new Error(`Request timeout after ${timeoutMs}ms`);
       }
       throw error;
@@ -58,24 +68,55 @@ export async function generateAltTextSuggestion(
       console.log(`[Alt Text Generation] Attempt ${attemptNumber}/3 for ${fileName}`);
       console.log(`[Alt Text Generation] Downloading image from Slack: ${imageUrl.substring(0, 50)}...`);
       
-      // Download image from Slack with authentication (20 second timeout)
+      // Download image from Slack with authentication (15 second timeout for faster feedback)
       const downloadStartTime = Date.now();
-      const imageResponse = await fetchWithTimeout(
-        imageUrl,
-        {
-          headers: {
-            Authorization: `Bearer ${slackToken}`,
+      console.log(`[Alt Text Generation] Preparing to fetch image with Authorization header`);
+      console.log(`[Alt Text Generation] Image URL: ${imageUrl.substring(0, 100)}...`);
+      console.log(`[Alt Text Generation] Token present: ${!!slackToken}, Token starts with: ${slackToken ? slackToken.substring(0, 7) : 'N/A'}`);
+      
+      // Add a heartbeat to verify function is still alive
+      const heartbeatInterval = setInterval(() => {
+        const elapsed = Date.now() - downloadStartTime;
+        console.log(`[Alt Text Generation] Still waiting for image download... (${elapsed}ms elapsed)`);
+      }, 2000); // Log every 2 seconds
+      
+      let imageResponse: Response;
+      try {
+        console.log(`[Alt Text Generation] Making fetch request with Authorization header...`);
+        imageResponse = await fetchWithTimeout(
+          imageUrl,
+          {
+            headers: {
+              'Authorization': `Bearer ${slackToken}`,
+              'User-Agent': 'Slack-Alt-Text-Bot/1.0',
+            },
           },
-        },
-        20000 // 20 second timeout (must complete before function timeout)
-      );
+          15000 // 15 second timeout (reduced for faster feedback)
+        );
+      } catch (fetchError) {
+        clearInterval(heartbeatInterval);
+        const errorMsg = fetchError instanceof Error ? fetchError.message : String(fetchError);
+        console.error(`[Alt Text Generation] Fetch failed with error: ${errorMsg}`);
+        throw fetchError;
+      } finally {
+        clearInterval(heartbeatInterval);
+      }
 
       const downloadTime = Date.now() - downloadStartTime;
       console.log(`[Alt Text Generation] Image download completed in ${downloadTime}ms, status: ${imageResponse.status}`);
 
       if (!imageResponse.ok) {
         const errorText = await imageResponse.text().catch(() => 'Unable to read error response');
-        console.error(`[Alt Text Generation] Failed to download image: ${imageResponse.status} ${imageResponse.statusText}`, errorText);
+        console.error(`[Alt Text Generation] Failed to download image: ${imageResponse.status} ${imageResponse.statusText}`);
+        console.error(`[Alt Text Generation] Error response body: ${errorText.substring(0, 500)}`);
+        
+        if (imageResponse.status === 401 || imageResponse.status === 403) {
+          console.error(`[Alt Text Generation] Authentication/Authorization error! Check that:`);
+          console.error(`[Alt Text Generation] 1. Bot token is valid`);
+          console.error(`[Alt Text Generation] 2. Bot has 'files:read' scope`);
+          console.error(`[Alt Text Generation] 3. Bot has access to the file`);
+        }
+        
         throw new Error(`Failed to download image: ${imageResponse.status} ${imageResponse.statusText}`);
       }
 

@@ -212,10 +212,22 @@ export const handler: Handler = async (
     // Process message events asynchronously
     if (slackEvent.type === 'message') {
       console.log('Processing message event');
-      // Don't await - respond immediately to Slack
-      handleMessageEvent(slackEvent).catch((error) => {
-        console.error('Error processing message event:', error);
+      
+      // Start the work immediately
+      const workPromise = handleMessageEvent(slackEvent).catch((error) => {
+        console.error('[Handler] Error processing message event:', error);
       });
+      
+      // Wait up to 2 seconds for work to make progress, then return to Slack
+      // This ensures the function context stays alive long enough for downloads to start
+      // but doesn't make Slack wait too long (Slack expects response within 3 seconds)
+      await Promise.race([
+        workPromise,
+        new Promise((resolve) => setTimeout(() => {
+          console.log('[Handler] Returning to Slack after 2s, work continues in background');
+          resolve(null);
+        }, 2000))
+      ]);
 
       return {
         statusCode: 200,
