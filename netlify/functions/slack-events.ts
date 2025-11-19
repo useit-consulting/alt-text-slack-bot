@@ -1,16 +1,15 @@
 import { Handler, HandlerEvent, HandlerContext } from '@netlify/functions';
 import { createHmac } from 'crypto';
-import { WebClient, ChatPostEphemeralArguments } from '@slack/web-api';
-import { generateResponseText, getImageNamesWithMissingAltText, getImagesWithMissingAltText, generateAltTextSuggestion, getBestThumbnailUrl } from '../../src/utils';
+import { getImageNamesWithMissingAltText } from '../../src/utils';
 
-const SLACK_TOKEN = process.env.SLACK_TOKEN;
 const SLACK_SIGNING_SECRET = process.env.SLACK_SIGNING_SECRET;
 
-if (!SLACK_TOKEN || !SLACK_SIGNING_SECRET) {
-  throw new Error('SLACK_TOKEN and SLACK_SIGNING_SECRET must be set');
+if (!SLACK_SIGNING_SECRET) {
+  throw new Error('SLACK_SIGNING_SECRET must be set');
 }
 
-const web = new WebClient(SLACK_TOKEN);
+// Get the site URL from environment or construct it
+const SITE_URL = process.env.URL || process.env.DEPLOY_PRIME_URL || '';
 
 /**
  * Verify the request signature from Slack
@@ -39,132 +38,33 @@ function handleUrlVerification(body: any): { statusCode: number; body: string } 
 }
 
 /**
- * Process message events and send ephemeral reminders for missing alt text
+ * Trigger background function to generate alt text
  */
-async function handleMessageEvent(event: any): Promise<void> {
-  console.log('Received message event:', JSON.stringify(event, null, 2));
-  
-  // Ignore bot messages and messages without files
-  if (event.subtype === 'bot_message') {
-    console.log('Ignoring bot message');
+async function triggerBackgroundFunction(event: any): Promise<void> {
+  if (!SITE_URL) {
+    console.error('[Handler] SITE_URL not set, cannot trigger background function');
     return;
   }
-  
-  if (!event.files) {
-    console.log('Message has no files property');
-    return;
-  }
-  
-  console.log('Files in event:', JSON.stringify(event.files, null, 2));
-  
-  const imagesMissingAltText = getImagesWithMissingAltText(event.files);
-  const filesnamesMissingAltText: string[] = getImageNamesWithMissingAltText(
-    event.files
-  );
-  
-  console.log('Images missing alt text:', filesnamesMissingAltText);
 
-  if (filesnamesMissingAltText.length > 0) {
-    console.log(`[Message Handler] Found ${filesnamesMissingAltText.length} image(s) missing alt text, starting alt text generation`);
-    
-    // Generate alt text suggestions for each image with overall timeout protection
-    // API typically takes 3-5 seconds per image, so we allow up to 20 seconds total
-    // to handle multiple images or slower responses
-    const altTextSuggestions = new Map<string, string | null>();
-    const generationStartTime = Date.now();
-    const MAX_GENERATION_TIME = 20000; // 20 seconds max for all generation work (API typically 3-5s per image)
-    let successCount = 0;
-    let failureCount = 0;
-    
-    // Wrap generation in a timeout to ensure we don't hang forever
-    const generationPromise = (async () => {
-      for (const file of imagesMissingAltText) {
-        const elapsed = Date.now() - generationStartTime;
-        if (elapsed > MAX_GENERATION_TIME) {
-          console.warn(`[Message Handler] Generation timeout approaching (${elapsed}ms), stopping generation`);
-          break;
-        }
-        
-        const imageUrl = getBestThumbnailUrl(file);
-        if (imageUrl) {
-          // Thumbnails have URLs like files-tmb, full-size images have files-pri
-          const isThumbnail = imageUrl.includes('files-tmb');
-          console.log(`[Message Handler] Processing image ${altTextSuggestions.size + 1}/${imagesMissingAltText.length}: ${file.name} (using ${isThumbnail ? 'thumbnail' : 'full-size'})`);
-          try {
-            const suggestion = await generateAltTextSuggestion(
-              imageUrl,
-              file.name,
-              SLACK_TOKEN,
-              isThumbnail
-            );
-            altTextSuggestions.set(file.name, suggestion);
-            if (suggestion) {
-              successCount++;
-              console.log(`[Message Handler] ✓ Successfully generated suggestion for ${file.name}`);
-            } else {
-              failureCount++;
-              console.log(`[Message Handler] ✗ Failed to generate suggestion for ${file.name}`);
-            }
-          } catch (error) {
-            failureCount++;
-            console.error(`[Message Handler] ✗ Exception generating suggestion for ${file.name}:`, error);
-            altTextSuggestions.set(file.name, null);
-          }
-        } else {
-          failureCount++;
-          console.warn(`[Message Handler] ✗ No image URL found for file: ${file.name}`);
-          altTextSuggestions.set(file.name, null);
-        }
-      }
-    })();
-    
-    // Wait for generation with timeout
-    try {
-      await Promise.race([
-        generationPromise,
-        new Promise((resolve) => setTimeout(() => {
-          console.warn(`[Message Handler] Generation timeout after ${MAX_GENERATION_TIME}ms, proceeding with available results`);
-          resolve(null);
-        }, MAX_GENERATION_TIME))
-      ]);
-    } catch (error) {
-      console.error(`[Message Handler] Error during generation:`, error);
+  const backgroundFunctionUrl = `${SITE_URL}/.netlify/functions/generate-alt-text`;
+  console.log(`[Handler] Triggering background function: ${backgroundFunctionUrl}`);
+
+  try {
+    const response = await fetch(backgroundFunctionUrl, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ event }),
+    });
+
+    if (!response.ok) {
+      console.error(`[Handler] Background function returned ${response.status}: ${response.statusText}`);
+    } else {
+      console.log('[Handler] Background function triggered successfully');
     }
-
-    const generationTime = Date.now() - generationStartTime;
-    console.log(`[Message Handler] Alt text generation completed in ${generationTime}ms`);
-    console.log(`[Message Handler] Summary: ${successCount} successful, ${failureCount} failed out of ${imagesMissingAltText.length} total`);
-
-    // Send message after generation completes (or times out)
-    // This happens in the background after we've already responded to Slack
-    const responseText = generateResponseText(event.files.length, filesnamesMissingAltText, altTextSuggestions);
-    const hasSuggestions = successCount > 0;
-    const totalTime = Date.now() - generationStartTime;
-    console.log(`[Message Handler] Generated response text (${responseText.length} chars, includes suggestions: ${hasSuggestions}) after ${totalTime}ms`);
-
-    const parameters: ChatPostEphemeralArguments = {
-      channel: event.channel,
-      user: event.user,
-      text: responseText,
-    };
-
-    if (event.thread_ts) {
-      parameters.thread_ts = event.thread_ts;
-      console.log(`[Message Handler] Message will be sent in thread: ${event.thread_ts}`);
-    }
-
-    try {
-      console.log(`[Message Handler] Sending ephemeral message to user ${event.user} in channel ${event.channel} (${totalTime}ms after event)`);
-      const messageStartTime = Date.now();
-      await web.chat.postEphemeral(parameters);
-      const messageTime = Date.now() - messageStartTime;
-      console.log(`[Message Handler] ✓ Ephemeral message sent successfully in ${messageTime}ms (total time: ${Date.now() - generationStartTime}ms)`);
-    } catch (error) {
-      console.error(`[Message Handler] ✗ Error sending ephemeral message:`, error);
-      // Don't throw - we've already responded to Slack, so just log the error
-    }
-  } else {
-    console.log('[Message Handler] No images missing alt text, not sending message');
+  } catch (error) {
+    console.error('[Handler] Failed to trigger background function:', error);
   }
 }
 
@@ -217,19 +117,24 @@ export const handler: Handler = async (
     const slackEvent = body.event;
     console.log('Event callback received, event type:', slackEvent.type);
 
-    // Process message events asynchronously
+    // Process message events
     if (slackEvent.type === 'message') {
       console.log('Processing message event');
       
-      // Respond to Slack immediately (within 3 second requirement)
-      // Then process alt text generation in the background
-      // The message will be sent when generation completes (or fails)
-      handleMessageEvent(slackEvent).catch((error) => {
-        console.error('[Handler] Error processing message event:', error);
-      });
+      // Check if message has files that need alt text
+      if (slackEvent.files) {
+        const imagesMissingAltText = getImageNamesWithMissingAltText(slackEvent.files);
+        if (imagesMissingAltText.length > 0) {
+          console.log(`[Handler] Found ${imagesMissingAltText.length} image(s) missing alt text, triggering background function`);
+          // Trigger background function - don't await, just fire and forget
+          triggerBackgroundFunction(slackEvent).catch((error) => {
+            console.error('[Handler] Error triggering background function:', error);
+          });
+        }
+      }
 
-      // Return immediately to Slack - work continues in background
-      // Netlify should keep the execution context alive as long as there are pending promises
+      // Return immediately to Slack (within 3 second requirement)
+      // Background function will handle the alt text generation and message sending
       return {
         statusCode: 200,
         body: JSON.stringify({ ok: true }),

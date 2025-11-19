@@ -6,5 +6,6 @@
   NODE_VERSION = "18"
 
 [functions]
-  "slack-events" = { timeout = 26 }
+  "slack-events" = { timeout = 10 }
+  "generate-alt-text" = { timeout = 900, background = true }
 
