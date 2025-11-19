@@ -42,14 +42,26 @@ function handleUrlVerification(body: any): { statusCode: number; body: string } 
  * Process message events and send ephemeral reminders for missing alt text
  */
 async function handleMessageEvent(event: any): Promise<void> {
+  console.log('Received message event:', JSON.stringify(event, null, 2));
+  
   // Ignore bot messages and messages without files
-  if (event.subtype === 'bot_message' || !event.files) {
+  if (event.subtype === 'bot_message') {
+    console.log('Ignoring bot message');
     return;
   }
-
+  
+  if (!event.files) {
+    console.log('Message has no files property');
+    return;
+  }
+  
+  console.log('Files in event:', JSON.stringify(event.files, null, 2));
+  
   const filesnamesMissingAltText: string[] = getImageNamesWithMissingAltText(
     event.files
   );
+  
+  console.log('Images missing alt text:', filesnamesMissingAltText);
 
   if (filesnamesMissingAltText.length > 0) {
     const parameters: ChatPostEphemeralArguments = {
@@ -63,10 +75,14 @@ async function handleMessageEvent(event: any): Promise<void> {
     }
 
     try {
+      console.log('Sending ephemeral message with parameters:', JSON.stringify(parameters, null, 2));
       await web.chat.postEphemeral(parameters);
+      console.log('Ephemeral message sent successfully');
     } catch (error) {
       console.error('Error sending ephemeral message:', error);
     }
+  } else {
+    console.log('No images missing alt text, not sending message');
   }
 }
 
@@ -117,9 +133,11 @@ export const handler: Handler = async (
   // Handle event callbacks
   if (body.type === 'event_callback') {
     const slackEvent = body.event;
+    console.log('Event callback received, event type:', slackEvent.type);
 
     // Process message events asynchronously
     if (slackEvent.type === 'message') {
+      console.log('Processing message event');
       // Don't await - respond immediately to Slack
       handleMessageEvent(slackEvent).catch((error) => {
         console.error('Error processing message event:', error);

@@ -37,6 +37,7 @@ This bot is configured to deploy as a serverless function on Netlify. Follow the
 4. Scroll up and click **Install to Workspace**
 5. Authorize the app in your workspace
 6. **Copy the Bot User OAuth Token** (starts with `xoxb-`) - you'll need this for Netlify
+   - ⚠️ **Note**: This is the "Bot User OAuth Token", NOT the "Client Secret". The Client Secret is a different credential used for OAuth installations and is not needed for this bot.
 
 ### Step 3: Enable Events API
 
@@ -130,8 +131,9 @@ To test the bot locally before deploying:
 
 The following environment variables must be set in Netlify:
 
-- `SLACK_TOKEN`: Bot User OAuth Token from the **OAuth and Permissions** tab.
-- `SLACK_SIGNING_SECRET`: Signing secret from the **Basic Information** tab.
+- `SLACK_TOKEN`: Bot User OAuth Token from the **OAuth and Permissions** tab (starts with `xoxb-`).
+  - ⚠️ **Not the Client Secret** - Make sure you're copying the "Bot User OAuth Token", not the "Client Secret"
+- `SLACK_SIGNING_SECRET`: Signing secret from the **Basic Information** tab (under App Credentials).
 
 ## Tips
 
