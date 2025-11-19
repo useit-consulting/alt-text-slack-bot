@@ -4,7 +4,10 @@
      "module": "commonjs",
      "sourceMap": true,
      "outDir": "dist",
-     "rootDir": "./src",                             
+     "rootDir": "./",
+     "esModuleInterop": true,
+     "skipLibCheck": true
  },
- "exclude": ["./node_modules", "./jest.config.ts", "test/*.test.ts"]
+ "include": ["./src/**/*", "./netlify/functions/**/*"],
+ "exclude": ["./node_modules", "./jest.config.ts", "test/*.test.ts", "./dist"]
 }

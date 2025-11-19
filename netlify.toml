@@ -1,0 +1,7 @@
+[build]
+  command = "npm run dist"
+  functions = "dist/netlify/functions"
+
+[build.environment]
+  NODE_VERSION = "18"
+
