@@ -68,9 +68,11 @@ async function handleMessageEvent(event: any): Promise<void> {
     console.log(`[Message Handler] Found ${filesnamesMissingAltText.length} image(s) missing alt text, starting alt text generation`);
     
     // Generate alt text suggestions for each image with overall timeout protection
+    // API typically takes 3-5 seconds per image, so we allow up to 20 seconds total
+    // to handle multiple images or slower responses
     const altTextSuggestions = new Map<string, string | null>();
     const generationStartTime = Date.now();
-    const MAX_GENERATION_TIME = 20000; // 20 seconds max for all generation work
+    const MAX_GENERATION_TIME = 20000; // 20 seconds max for all generation work (API typically 3-5s per image)
     let successCount = 0;
     let failureCount = 0;
     
@@ -133,9 +135,12 @@ async function handleMessageEvent(event: any): Promise<void> {
     console.log(`[Message Handler] Alt text generation completed in ${generationTime}ms`);
     console.log(`[Message Handler] Summary: ${successCount} successful, ${failureCount} failed out of ${imagesMissingAltText.length} total`);
 
+    // Send message after generation completes (or times out)
+    // This happens in the background after we've already responded to Slack
     const responseText = generateResponseText(event.files.length, filesnamesMissingAltText, altTextSuggestions);
     const hasSuggestions = successCount > 0;
-    console.log(`[Message Handler] Generated response text (${responseText.length} chars, includes suggestions: ${hasSuggestions})`);
+    const totalTime = Date.now() - generationStartTime;
+    console.log(`[Message Handler] Generated response text (${responseText.length} chars, includes suggestions: ${hasSuggestions}) after ${totalTime}ms`);
 
     const parameters: ChatPostEphemeralArguments = {
       channel: event.channel,
@@ -149,11 +154,14 @@ async function handleMessageEvent(event: any): Promise<void> {
     }
 
     try {
-      console.log(`[Message Handler] Sending ephemeral message to user ${event.user} in channel ${event.channel}`);
+      console.log(`[Message Handler] Sending ephemeral message to user ${event.user} in channel ${event.channel} (${totalTime}ms after event)`);
+      const messageStartTime = Date.now();
       await web.chat.postEphemeral(parameters);
-      console.log(`[Message Handler] ✓ Ephemeral message sent successfully`);
+      const messageTime = Date.now() - messageStartTime;
+      console.log(`[Message Handler] ✓ Ephemeral message sent successfully in ${messageTime}ms (total time: ${Date.now() - generationStartTime}ms)`);
     } catch (error) {
       console.error(`[Message Handler] ✗ Error sending ephemeral message:`, error);
+      // Don't throw - we've already responded to Slack, so just log the error
     }
   } else {
     console.log('[Message Handler] No images missing alt text, not sending message');
@@ -213,23 +221,15 @@ export const handler: Handler = async (
     if (slackEvent.type === 'message') {
       console.log('Processing message event');
       
-      // Start the work immediately
-      const workPromise = handleMessageEvent(slackEvent).catch((error) => {
+      // Respond to Slack immediately (within 3 second requirement)
+      // Then process alt text generation in the background
+      // The message will be sent when generation completes (or fails)
+      handleMessageEvent(slackEvent).catch((error) => {
         console.error('[Handler] Error processing message event:', error);
       });
-      
-      // Wait up to 2.5 seconds for initial work to start (download should complete quickly)
-      // This ensures the download completes before we return to Slack
-      // Slack expects response within 3 seconds, so 2.5s gives us buffer
-      // After returning, the API call will continue in background if context stays alive
-      await Promise.race([
-        workPromise,
-        new Promise((resolve) => setTimeout(() => {
-          console.log('[Handler] Returning to Slack after 2.5s timeout - work may continue in background');
-          resolve(null);
-        }, 2500))
-      ]);
 
+      // Return immediately to Slack - work continues in background
+      // Netlify should keep the execution context alive as long as there are pending promises
       return {
         statusCode: 200,
         body: JSON.stringify({ ok: true }),

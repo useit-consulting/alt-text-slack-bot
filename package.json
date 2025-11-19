@@ -6,7 +6,8 @@
   "scripts": {
     "clean": "rm -rf dist",
     "dist": "npm run clean && mkdir dist && tsc",
-    "test": "jest"
+    "test": "jest",
+    "test-alt-api": "ts-node test-alt-text-api.ts"
   },
   "prettier": "@github/prettier-config",
   "keywords": [

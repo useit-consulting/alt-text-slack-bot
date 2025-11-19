@@ -68,21 +68,18 @@ export async function generateAltTextSuggestion(
       console.log(`[Alt Text Generation] Attempt ${attemptNumber}/3 for ${fileName}`);
       console.log(`[Alt Text Generation] Downloading image from Slack: ${imageUrl.substring(0, 50)}...`);
       
-      // Download image from Slack with authentication (15 second timeout for faster feedback)
+      // Download image from Slack with authentication
+      // Use reasonable timeout - thumbnails should download quickly, but allow time for larger files
       const downloadStartTime = Date.now();
       console.log(`[Alt Text Generation] Preparing to fetch image with Authorization header`);
       console.log(`[Alt Text Generation] Image URL: ${imageUrl.substring(0, 100)}...`);
       console.log(`[Alt Text Generation] Token present: ${!!slackToken}, Token starts with: ${slackToken ? slackToken.substring(0, 7) : 'N/A'}`);
       
-      // Add a heartbeat to verify function is still alive
-      const heartbeatInterval = setInterval(() => {
-        const elapsed = Date.now() - downloadStartTime;
-        console.log(`[Alt Text Generation] Still waiting for image download... (${elapsed}ms elapsed)`);
-      }, 2000); // Log every 2 seconds
-      
       let imageResponse: Response;
       try {
         console.log(`[Alt Text Generation] Making fetch request with Authorization header...`);
+        // Use 20 second timeout for downloads - should be plenty for thumbnails, 
+        // and if it's a large file, we'll timeout gracefully
         imageResponse = await fetchWithTimeout(
           imageUrl,
           {
@@ -91,15 +88,12 @@ export async function generateAltTextSuggestion(
               'User-Agent': 'Slack-Alt-Text-Bot/1.0',
             },
           },
-          15000 // 15 second timeout (reduced for faster feedback)
+          20000 // 20 second timeout for downloads
         );
       } catch (fetchError) {
-        clearInterval(heartbeatInterval);
         const errorMsg = fetchError instanceof Error ? fetchError.message : String(fetchError);
         console.error(`[Alt Text Generation] Fetch failed with error: ${errorMsg}`);
         throw fetchError;
-      } finally {
-        clearInterval(heartbeatInterval);
       }
 
       const downloadTime = Date.now() - downloadStartTime;
@@ -196,6 +190,9 @@ export async function generateAltTextSuggestion(
       console.log(`[Alt Text Generation] Payload: fileName=${fileName}, model=${payload.model}, backend=${payload.backend}`);
       
       const apiStartTime = Date.now();
+      // API typically takes 3-5 seconds per image, but we allow up to 24 seconds
+      // to handle slower responses, rate limiting, or retries
+      // Netlify function timeout is 26 seconds, so 24 seconds gives us buffer
       const response = await fetchWithTimeout(
         ALT_TEXT_API_URL,
         {
@@ -206,7 +203,7 @@ export async function generateAltTextSuggestion(
           },
           body: JSON.stringify(payload),
         },
-        20000 // 20 second timeout for API call (must complete before function timeout)
+        24000 // 24 second timeout (API typically takes 3-5s, but allows for slower responses)
       );
 
       const apiTime = Date.now() - apiStartTime;
