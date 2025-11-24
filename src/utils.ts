@@ -491,7 +491,7 @@ export const generateResponseText = (
   /*const instructions = `On Desktop, activate the *More actions* menu on the image, choose *Edit file details*, and modify the `+
   `*Description* field to add alt text. On Android, long press the image and select *Add description*. If adding alt is not supported on your device,`+
   ` simply provide alt text in a follow-up message. ❤️`*/
-  const instructions = '';
+  const instructions = 'Lägg till en beskrivning under *"Edit file details"*. Du kan också skriva beskrivningen som ett vanligt meddelande i tråden.';
   let suggestionText = '';
   if (altTextSuggestions && altTextSuggestions.size > 0) {
     const suggestions: string[] = [];
@@ -503,7 +503,7 @@ export const generateResponseText = (
     });
     
     if (suggestions.length > 0) {
-      suggestionText = `\n\n*Här är ett AI-förslag:*\n${suggestions.join('\n\n')}\n`;
+      suggestionText = `\n\n*Här är ett AI-förslag (men dubbelkolla att det stämmer!):*\n${suggestions.join('\n\n')}\n`;
     }
   }
 
