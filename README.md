@@ -150,6 +150,12 @@ The following environment variables must be set in Netlify:
   - To find a user's ID, you can use the Slack API or check the user's profile URL in Slack.
   - Users in this list will not receive alt text reminders when they post images without alt text.
 
+## Preventing Duplicate Messages
+
+The bot uses **Netlify Background Functions** to prevent Slack retries. The main function responds to Slack immediately (within 3 seconds), then invokes a background function that processes alt text generation asynchronously. This prevents Slack from retrying events while ensuring the work completes.
+
+The bot also includes basic in-memory deduplication using `event_id` as a safety net in case the background function is somehow invoked multiple times.
+
 ## Tips
 
 - If you prefer not to experiment with a Slack app in an active workspace, you can create a free test workspace.
@@ -159,3 +165,4 @@ The following environment variables must be set in Netlify:
 - Alt text suggestions are generated in Swedish and are formatted as copyable code blocks in the message.
 - If the alt text generation API fails or the API key is not set, the bot will still send reminders without suggestions.
 - To exclude specific users from receiving reminders, set the `EXCLUDED_USER_IDS` environment variable with a comma-separated list of user IDs.
+- The bot uses Netlify Background Functions to prevent duplicate messages by responding to Slack immediately.

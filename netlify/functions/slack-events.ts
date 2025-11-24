@@ -1,16 +1,13 @@
 import { Handler, HandlerEvent, HandlerContext } from '@netlify/functions';
 import { createHmac } from 'crypto';
-import { WebClient } from '@slack/web-api';
-import { getImageNamesWithMissingAltText, handleAltTextGeneration } from '../../src/utils';
+import { getImageNamesWithMissingAltText } from '../../src/utils';
 
-const SLACK_TOKEN = process.env.SLACK_TOKEN;
 const SLACK_SIGNING_SECRET = process.env.SLACK_SIGNING_SECRET;
+const NETLIFY_SITE_URL = process.env.URL || process.env.DEPLOY_PRIME_URL || '';
 
-if (!SLACK_TOKEN || !SLACK_SIGNING_SECRET) {
-  throw new Error('SLACK_TOKEN and SLACK_SIGNING_SECRET must be set');
+if (!SLACK_SIGNING_SECRET) {
+  throw new Error('SLACK_SIGNING_SECRET must be set');
 }
-
-const web = new WebClient(SLACK_TOKEN);
 
 /**
  * Verify the request signature from Slack
@@ -99,30 +96,71 @@ export const handler: Handler = async (
         if (imagesMissingAltText.length > 0) {
           console.log(`[Handler] Found ${imagesMissingAltText.length} image(s) missing alt text, generating alt text`);
           
-          // Wait for alt text generation to complete
-          // This may take 5-10 seconds (download + API call), but ensures work completes
-          // Slack will retry if we don't respond in 3 seconds, but we'll handle that gracefully with event_id deduplication
-          const workStartTime = Date.now();
-          try {
-            await Promise.race([
-              handleAltTextGeneration(slackEvent, SLACK_TOKEN, web, eventId),
-              new Promise((_, reject) => setTimeout(() => {
-                reject(new Error('Alt text generation timeout after 20 seconds'));
-              }, 20000))
-            ]);
-            const workTime = Date.now() - workStartTime;
-            console.log(`[Handler] Alt text generation completed in ${workTime}ms`);
-          } catch (error) {
-            const workTime = Date.now() - workStartTime;
-            console.error(`[Handler] Alt text generation failed after ${workTime}ms:`, error);
-            // Continue - we'll still return 200 to Slack
+          // Invoke background function asynchronously (fire and forget)
+          // This allows us to respond to Slack immediately while the background function
+          // processes the alt text generation (which can take 5-10 seconds)
+          
+          // Construct the background function URL
+          // Try to get it from environment variables, or construct from request
+          let backgroundFunctionUrl: string;
+          if (NETLIFY_SITE_URL) {
+            backgroundFunctionUrl = `${NETLIFY_SITE_URL}/.netlify/functions/slack-events-background`;
+          } else if (event.headers.host) {
+            // Construct from the incoming request
+            const protocol = event.headers['x-forwarded-proto'] || 'https';
+            backgroundFunctionUrl = `${protocol}://${event.headers.host}/.netlify/functions/slack-events-background`;
+          } else {
+            console.error('[Handler] Cannot determine site URL for background function invocation');
+            console.error('[Handler] Set URL or DEPLOY_PRIME_URL environment variable, or ensure Host header is present');
+            // Still return 200 to Slack - we don't want to cause retries
+            return {
+              statusCode: 200,
+              body: JSON.stringify({ ok: true }),
+            };
           }
+          
+          console.log(`[Handler] Invoking background function: ${backgroundFunctionUrl}`);
+          console.log(`[Handler] Passing slackEvent with ${slackEvent.files?.length || 0} file(s)`);
+          
+          // Verify we have the necessary data
+          if (!slackEvent.files || slackEvent.files.length === 0) {
+            console.warn('[Handler] Warning: slackEvent.files is missing or empty');
+          } else {
+            // Log file details to verify URLs are present
+            slackEvent.files.forEach((file: any, index: number) => {
+              const hasUrl = file.thumb_800 || file.thumb_720 || file.thumb_480 || file.thumb_360 || file.url_private || file.url_private_download;
+              console.log(`[Handler] File ${index + 1}: ${file.name}, has URL: ${!!hasUrl}`);
+            });
+          }
+          
+          // Fire and forget - don't await to ensure we respond to Slack quickly
+          // The background function will run asynchronously for up to 15 minutes
+          // The slackEvent object contains all file metadata including URLs (thumb_*, url_private, etc.)
+          // These URLs are persistent and can be accessed with the SLACK_TOKEN in the background function
+          fetch(backgroundFunctionUrl, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              slackEvent,
+              eventId,
+            }),
+          }).catch((error) => {
+            console.error(`[Handler] Failed to invoke background function:`, error);
+            // Non-fatal - we've already responded to Slack
+          });
+          
+          // Return immediately to Slack (within 3 seconds) to prevent retries
+          // The background function will process alt text generation asynchronously
+          return {
+            statusCode: 200,
+            body: JSON.stringify({ ok: true }),
+          };
         }
       }
 
-      // Return to Slack
-      // Note: This may be after 3 seconds, causing Slack to retry
-      // But the function is idempotent using event_id, so retries are safe
+      // Return to Slack immediately for messages without images needing alt text
       return {
         statusCode: 200,
         body: JSON.stringify({ ok: true }),
