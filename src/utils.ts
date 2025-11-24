@@ -353,25 +353,44 @@ export const getBestThumbnailUrl = (file: any): string | null => {
  * This can be called directly without HTTP invocation
  */
 // Simple in-memory cache to prevent duplicate processing
-// In production, you might want to use Redis or similar
+// NOTE: This only works within the same function instance. 
+// If Slack retries and hits a different (cold) instance, the cache will be empty.
+// This is why we use event_id for deduplication - it's consistent across retries.
+// In production with high traffic, you might want to use Redis or similar for cross-instance deduplication.
 const processedEvents = new Set<string>();
 
 export async function handleAltTextGeneration(
   slackEvent: any,
   slackToken: string,
-  webClient: any
+  webClient: any,
+  eventId?: string
 ): Promise<void> {
   // Create a unique key for this event to prevent duplicate processing
-  // Use event_ts + channel + user to uniquely identify the event
-  const eventKey = `${slackEvent.event_ts || slackEvent.ts}_${slackEvent.channel}_${slackEvent.user}`;
+  // Prefer event_id (from Slack event callback) as it's consistent across retries
+  // Fall back to message ts + channel + user + file IDs for uniqueness
+  let eventKey: string;
+  if (eventId) {
+    // event_id is the most reliable - it's the same across all retries of the same event
+    eventKey = `event_${eventId}`;
+    console.log(`[Alt Text Handler] Using event_id for deduplication: ${eventId}`);
+  } else {
+    // Fallback: use message timestamp + channel + user + file IDs
+    const messageTs = slackEvent.ts || slackEvent.event_ts;
+    const fileIds = slackEvent.files?.map((f: any) => f.id).join(',') || '';
+    eventKey = `${messageTs}_${slackEvent.channel}_${slackEvent.user}_${fileIds}`;
+    console.log(`[Alt Text Handler] Using fallback key for deduplication (no event_id): ${eventKey}`);
+  }
   
   if (processedEvents.has(eventKey)) {
-    console.log(`[Alt Text Handler] Event already processed: ${eventKey}, skipping`);
+    console.log(`[Alt Text Handler] Event already processed: ${eventKey}, skipping (cache size: ${processedEvents.size})`);
     return;
   }
   
-  // Mark as processing (add to set)
+  // Mark as processing (add to set) BEFORE any async work
+  // This prevents race conditions if the same event is processed concurrently
+  // Note: This only works within the same function instance. Cold starts will have empty cache.
   processedEvents.add(eventKey);
+  console.log(`[Alt Text Handler] Processing event: ${eventKey} (cache size: ${processedEvents.size})`);
   
   // Clean up old entries (keep last 1000)
   if (processedEvents.size > 1000) {
@@ -469,16 +488,33 @@ export async function handleAltTextGeneration(
   };
 
   try {
+    // Final check before sending - if somehow we've already processed this, skip
+    // (This shouldn't happen due to the check at the start, but provides extra safety)
+    if (processedEvents.has(eventKey + '_sent')) {
+      console.log(`[Alt Text Handler] Message already sent for event: ${eventKey}, skipping send`);
+      return;
+    }
+    
     console.log(`[Alt Text Handler] Sending ephemeral message to user ${slackEvent.user} in channel ${slackEvent.channel}`);
     await webClient.chat.postEphemeral(parameters);
     console.log(`[Alt Text Handler] ✓ Ephemeral message sent successfully`);
+    
+    // Mark as sent to prevent duplicate sends
+    processedEvents.add(eventKey + '_sent');
   } catch (error) {
     console.error(`[Alt Text Handler] ✗ Error sending ephemeral message:`, error);
-    // Don't remove from processedEvents on error - we want to retry on next Slack retry
-    // But if it's a "message already sent" error, we can remove it
-    if (error instanceof Error && error.message.includes('already_exists')) {
-      processedEvents.delete(eventKey);
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    
+    // If it's an "already_exists" error, that means we've already sent a message
+    // This can happen if Slack retried and we sent from a different instance
+    if (errorMessage.includes('already_exists') || errorMessage.includes('already sent')) {
+      console.log(`[Alt Text Handler] Message already exists (likely from retry), marking as sent`);
+      processedEvents.add(eventKey + '_sent');
+      return; // Don't throw - this is expected behavior
     }
+    
+    // For other errors, remove from processedEvents so we can retry
+    processedEvents.delete(eventKey);
     throw error;
   }
 }

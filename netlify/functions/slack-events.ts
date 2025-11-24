@@ -86,7 +86,8 @@ export const handler: Handler = async (
   // Handle event callbacks
   if (body.type === 'event_callback') {
     const slackEvent = body.event;
-    console.log('Event callback received, event type:', slackEvent.type);
+    const eventId = body.event_id; // This is consistent across retries
+    console.log('Event callback received, event type:', slackEvent.type, 'event_id:', eventId);
 
     // Process message events
     if (slackEvent.type === 'message') {
@@ -100,11 +101,11 @@ export const handler: Handler = async (
           
           // Wait for alt text generation to complete
           // This may take 5-10 seconds (download + API call), but ensures work completes
-          // Slack will retry if we don't respond in 3 seconds, but we'll handle that gracefully
+          // Slack will retry if we don't respond in 3 seconds, but we'll handle that gracefully with event_id deduplication
           const workStartTime = Date.now();
           try {
             await Promise.race([
-              handleAltTextGeneration(slackEvent, SLACK_TOKEN, web),
+              handleAltTextGeneration(slackEvent, SLACK_TOKEN, web, eventId),
               new Promise((_, reject) => setTimeout(() => {
                 reject(new Error('Alt text generation timeout after 20 seconds'));
               }, 20000))
@@ -121,7 +122,7 @@ export const handler: Handler = async (
 
       // Return to Slack
       // Note: This may be after 3 seconds, causing Slack to retry
-      // But the function is idempotent, so retries are safe
+      // But the function is idempotent using event_id, so retries are safe
       return {
         statusCode: 200,
         body: JSON.stringify({ ok: true }),
