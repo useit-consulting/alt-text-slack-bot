@@ -498,12 +498,12 @@ export const generateResponseText = (
     filesnamesMissingAltText.forEach((filename) => {
       const suggestion = altTextSuggestions.get(filename);
       if (suggestion) {
-        suggestions.push(`*${filename}:*\n\`\`\`${suggestion}\`\`\``);
+        suggestions.push(`\n\`\`\`${suggestion}\`\`\``);
       }
     });
     
     if (suggestions.length > 0) {
-      suggestionText = `\n\n*Här är ett förslag på en alt-text:*\n${suggestions.join('\n\n')}\n`;
+      suggestionText = `\n\n*Här är ett AI-förslag:*\n${suggestions.join('\n\n')}\n`;
     }
   }
 
