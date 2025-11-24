@@ -4,6 +4,19 @@ const ALT_TEXT_API_URL = 'https://useit-alttext.netlify.app/.netlify/functions/g
 const ALT_TEXT_API_KEY = process.env.ALT_TEXT_GENERATION_API_KEY;
 
 /**
+ * Get list of excluded user IDs from environment variable
+ * @return {string[]} Array of user IDs to exclude from alt text reminders
+ */
+function getExcludedUserIds(): string[] {
+  const excludedUsers = process.env.EXCLUDED_USER_IDS;
+  if (!excludedUsers) {
+    return [];
+  }
+  // Support comma-separated list of user IDs
+  return excludedUsers.split(',').map(id => id.trim()).filter(id => id.length > 0);
+}
+
+/**
  * Downloads an image from Slack and generates an alt text suggestion
  *
  * @param {string} imageUrl The URL of the image from Slack (thumbnail or full-size)
@@ -371,6 +384,14 @@ export async function handleAltTextGeneration(
   // Ignore bot messages and messages without files
   if (slackEvent.subtype === 'bot_message') {
     console.log('[Alt Text Handler] Ignoring bot message');
+    processedEvents.delete(eventKey); // Remove if we're not processing
+    return;
+  }
+
+  // Check if user is excluded from reminders
+  const excludedUserIds = getExcludedUserIds();
+  if (slackEvent.user && excludedUserIds.includes(slackEvent.user)) {
+    console.log(`[Alt Text Handler] User ${slackEvent.user} is excluded from alt text reminders`);
     processedEvents.delete(eventKey); // Remove if we're not processing
     return;
   }

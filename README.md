@@ -70,6 +70,7 @@ This bot is configured to deploy as a serverless function on Netlify. Follow the
    - `SLACK_TOKEN` - Your Bot User OAuth Token (from Step 2)
    - `SLACK_SIGNING_SECRET` - Your Signing Secret (from Step 4)
    - `ALT_TEXT_GENERATION_API_KEY` - API key for the alt text generation service (optional, but required for suggestions)
+   - `EXCLUDED_USER_IDS` - Comma-separated list of Slack user IDs to exclude from reminders (optional)
 7. Click **Deploy site**
 
 #### Option B: Deploy via Netlify CLI
@@ -82,6 +83,7 @@ This bot is configured to deploy as a serverless function on Netlify. Follow the
    netlify env:set SLACK_TOKEN "xoxb-your-token-here"
    netlify env:set SLACK_SIGNING_SECRET "your-signing-secret-here"
    netlify env:set ALT_TEXT_GENERATION_API_KEY "your-api-key-here"
+   netlify env:set EXCLUDED_USER_IDS "U12345678,U87654321"  # Optional: comma-separated user IDs
    ```
 5. Deploy: `netlify deploy --prod`
 
@@ -117,6 +119,7 @@ To test the bot locally before deploying:
    export SLACK_TOKEN="xoxb-your-token-here"
    export SLACK_SIGNING_SECRET="your-signing-secret-here"
    export ALT_TEXT_GENERATION_API_KEY="your-api-key-here"
+   export EXCLUDED_USER_IDS="U12345678,U87654321"  # Optional: comma-separated user IDs
    ```
 4. Use a tool like [ngrok](https://ngrok.com/) to expose your local server:
    ```bash
@@ -142,6 +145,10 @@ The following environment variables must be set in Netlify:
 - `ALT_TEXT_GENERATION_API_KEY`: API key for the alt text generation service (optional).
   - If not set, the bot will still send reminders but won't generate alt text suggestions.
   - The bot will gracefully handle API failures and still send reminders without suggestions.
+- `EXCLUDED_USER_IDS`: Comma-separated list of Slack user IDs to exclude from alt text reminders (optional).
+  - Example: `U12345678,U87654321`
+  - To find a user's ID, you can use the Slack API or check the user's profile URL in Slack.
+  - Users in this list will not receive alt text reminders when they post images without alt text.
 
 ## Tips
 
@@ -151,3 +158,4 @@ The following environment variables must be set in Netlify:
 - The bot automatically handles threaded messages and will respond in the same thread.
 - Alt text suggestions are generated in Swedish and are formatted as copyable code blocks in the message.
 - If the alt text generation API fails or the API key is not set, the bot will still send reminders without suggestions.
+- To exclude specific users from receiving reminders, set the `EXCLUDED_USER_IDS` environment variable with a comma-separated list of user IDs.

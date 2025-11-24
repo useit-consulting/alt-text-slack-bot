@@ -11,7 +11,25 @@ const web = new WebClient(SLACK_TOKEN)
 const slackEvents = createEventAdapter(SLACK_SIGNING_SECRET)
 const port = process.env.PORT || 3000;
 
+/**
+ * Get list of excluded user IDs from environment variable
+ */
+function getExcludedUserIds(): string[] {
+  const excludedUsers = process.env.EXCLUDED_USER_IDS;
+  if (!excludedUsers) {
+    return [];
+  }
+  return excludedUsers.split(',').map(id => id.trim()).filter(id => id.length > 0);
+}
+
 slackEvents.on('message', (event) => {
+  // Check if user is excluded from reminders
+  const excludedUserIds = getExcludedUserIds();
+  if (event.user && excludedUserIds.includes(event.user)) {
+    console.log(`[Message Handler] User ${event.user} is excluded from alt text reminders`);
+    return;
+  }
+
   if (event.hasOwnProperty('files')) {
     const filesnamesMissingAltText: string[] = getImageNamesWithMissingAltText(event.files)
     if (filesnamesMissingAltText.length > 0) {
