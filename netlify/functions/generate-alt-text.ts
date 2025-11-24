@@ -18,22 +18,40 @@ export const handler: Handler = async (
   event: HandlerEvent,
   context: HandlerContext
 ) => {
-  console.log('[Background Function] Starting alt text generation');
+  console.log('[Background Function] ===== FUNCTION INVOKED =====');
+  console.log('[Background Function] Event method:', event.httpMethod);
+  console.log('[Background Function] Event path:', event.path);
+  console.log('[Background Function] Event body length:', event.body?.length || 0);
+  console.log('[Background Function] Event body preview:', event.body?.substring(0, 200) || 'empty');
   
   // Parse the event data passed from slack-events
   let eventData;
   try {
-    eventData = JSON.parse(event.body || '{}');
+    const bodyString = event.body || '{}';
+    console.log('[Background Function] Parsing body:', bodyString.substring(0, 500));
+    eventData = JSON.parse(bodyString);
+    console.log('[Background Function] Parsed eventData keys:', Object.keys(eventData));
   } catch (error) {
     console.error('[Background Function] Failed to parse event data:', error);
+    console.error('[Background Function] Error details:', error instanceof Error ? error.message : String(error));
     return {
       statusCode: 400,
-      body: JSON.stringify({ error: 'Invalid event data' }),
+      body: JSON.stringify({ error: 'Invalid event data', details: error instanceof Error ? error.message : String(error) }),
+    };
+  }
+
+  if (!eventData || !eventData.event) {
+    console.error('[Background Function] Missing event data or event property');
+    console.error('[Background Function] eventData:', JSON.stringify(eventData, null, 2));
+    return {
+      statusCode: 400,
+      body: JSON.stringify({ error: 'Missing event data' }),
     };
   }
 
   const slackEvent = eventData.event;
-  console.log('[Background Function] Processing event:', slackEvent.type);
+  console.log('[Background Function] Processing event type:', slackEvent?.type);
+  console.log('[Background Function] Event has files:', !!slackEvent?.files);
 
   // Ignore bot messages and messages without files
   if (slackEvent.subtype === 'bot_message') {

@@ -335,6 +335,103 @@ export const getBestThumbnailUrl = (file: any): string | null => {
  * @param {Map<string, string | null>} altTextSuggestions Map of filename to alt text suggestion (null if generation failed)
  * @return {string} A generated response text.
  */
+/**
+ * Handles the complete alt text generation workflow
+ * This can be called directly without HTTP invocation
+ */
+export async function handleAltTextGeneration(
+  slackEvent: any,
+  slackToken: string,
+  webClient: any
+): Promise<void> {
+  console.log('[Alt Text Handler] Starting alt text generation workflow');
+  
+  // Ignore bot messages and messages without files
+  if (slackEvent.subtype === 'bot_message') {
+    console.log('[Alt Text Handler] Ignoring bot message');
+    return;
+  }
+
+  if (!slackEvent.files) {
+    console.log('[Alt Text Handler] Message has no files');
+    return;
+  }
+
+  const imagesMissingAltText = getImagesWithMissingAltText(slackEvent.files);
+  const filesnamesMissingAltText = getImageNamesWithMissingAltText(slackEvent.files);
+
+  console.log(`[Alt Text Handler] Found ${filesnamesMissingAltText.length} image(s) missing alt text`);
+
+  if (filesnamesMissingAltText.length === 0) {
+    console.log('[Alt Text Handler] No images missing alt text');
+    return;
+  }
+
+  // Generate alt text suggestions for each image
+  const altTextSuggestions = new Map<string, string | null>();
+  const generationStartTime = Date.now();
+  let successCount = 0;
+  let failureCount = 0;
+
+  for (const file of imagesMissingAltText) {
+    const imageUrl = getBestThumbnailUrl(file);
+    if (imageUrl) {
+      const isThumbnail = imageUrl.includes('files-tmb');
+      console.log(`[Alt Text Handler] Processing image: ${file.name} (using ${isThumbnail ? 'thumbnail' : 'full-size'})`);
+      
+      try {
+        const suggestion = await generateAltTextSuggestion(
+          imageUrl,
+          file.name,
+          slackToken,
+          isThumbnail
+        );
+        altTextSuggestions.set(file.name, suggestion);
+        if (suggestion) {
+          successCount++;
+          console.log(`[Alt Text Handler] ✓ Generated suggestion for ${file.name}`);
+        } else {
+          failureCount++;
+          console.log(`[Alt Text Handler] ✗ Failed to generate suggestion for ${file.name}`);
+        }
+      } catch (error) {
+        failureCount++;
+        console.error(`[Alt Text Handler] ✗ Exception generating suggestion for ${file.name}:`, error);
+        altTextSuggestions.set(file.name, null);
+      }
+    } else {
+      failureCount++;
+      console.warn(`[Alt Text Handler] ✗ No image URL found for file: ${file.name}`);
+      altTextSuggestions.set(file.name, null);
+    }
+  }
+
+  const generationTime = Date.now() - generationStartTime;
+  console.log(`[Alt Text Handler] Alt text generation completed in ${generationTime}ms`);
+  console.log(`[Alt Text Handler] Summary: ${successCount} successful, ${failureCount} failed`);
+
+  // Send message with suggestions
+  const responseText = generateResponseText(slackEvent.files.length, filesnamesMissingAltText, altTextSuggestions);
+  const hasSuggestions = successCount > 0;
+  console.log(`[Alt Text Handler] Generated response text (${responseText.length} chars, includes suggestions: ${hasSuggestions})`);
+
+  const parameters = {
+    channel: slackEvent.channel,
+    user: slackEvent.user,
+    text: responseText,
+    ...(slackEvent.thread_ts && { thread_ts: slackEvent.thread_ts }),
+  };
+
+  try {
+    console.log(`[Alt Text Handler] Sending ephemeral message to user ${slackEvent.user} in channel ${slackEvent.channel}`);
+    await webClient.chat.postEphemeral(parameters);
+    console.log(`[Alt Text Handler] ✓ Ephemeral message sent successfully`);
+  } catch (error) {
+    console.error(`[Alt Text Handler] ✗ Error sending ephemeral message:`, error);
+    throw error;
+  }
+}
+
 export const generateResponseText = (
   fileCount: number,
   filesnamesMissingAltText: string[],

@@ -7,5 +7,5 @@
 
 [functions]
   "slack-events" = { timeout = 10 }
-  "generate-alt-text" = { timeout = 900, background = true }
+  "generate-alt-text" = { timeout = 26 }
 

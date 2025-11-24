@@ -1,15 +1,16 @@
 import { Handler, HandlerEvent, HandlerContext } from '@netlify/functions';
 import { createHmac } from 'crypto';
-import { getImageNamesWithMissingAltText } from '../../src/utils';
+import { WebClient } from '@slack/web-api';
+import { getImageNamesWithMissingAltText, handleAltTextGeneration } from '../../src/utils';
 
+const SLACK_TOKEN = process.env.SLACK_TOKEN;
 const SLACK_SIGNING_SECRET = process.env.SLACK_SIGNING_SECRET;
 
-if (!SLACK_SIGNING_SECRET) {
-  throw new Error('SLACK_SIGNING_SECRET must be set');
+if (!SLACK_TOKEN || !SLACK_SIGNING_SECRET) {
+  throw new Error('SLACK_TOKEN and SLACK_SIGNING_SECRET must be set');
 }
 
-// Get the site URL from environment or construct it
-const SITE_URL = process.env.URL || process.env.DEPLOY_PRIME_URL || '';
+const web = new WebClient(SLACK_TOKEN);
 
 /**
  * Verify the request signature from Slack
@@ -38,34 +39,24 @@ function handleUrlVerification(body: any): { statusCode: number; body: string } 
 }
 
 /**
- * Trigger background function to generate alt text
+ * Trigger alt text generation in the background
+ * Executes directly without HTTP call - avoids network timeout issues
  */
-async function triggerBackgroundFunction(event: any): Promise<void> {
-  if (!SITE_URL) {
-    console.error('[Handler] SITE_URL not set, cannot trigger background function');
-    return;
-  }
+function triggerAltTextGeneration(event: any): void {
+  console.log(`[Handler] Starting background alt text generation`);
+  console.log(`[Handler] Event data:`, JSON.stringify({ 
+    eventType: event.type, 
+    hasFiles: !!event.files,
+    fileCount: event.files?.length || 0 
+  }));
 
-  const backgroundFunctionUrl = `${SITE_URL}/.netlify/functions/generate-alt-text`;
-  console.log(`[Handler] Triggering background function: ${backgroundFunctionUrl}`);
-
-  try {
-    const response = await fetch(backgroundFunctionUrl, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({ event }),
-    });
-
-    if (!response.ok) {
-      console.error(`[Handler] Background function returned ${response.status}: ${response.statusText}`);
-    } else {
-      console.log('[Handler] Background function triggered successfully');
-    }
-  } catch (error) {
-    console.error('[Handler] Failed to trigger background function:', error);
-  }
+  // Execute in background - don't await, just fire and forget
+  // This runs after we return to Slack, keeping the execution context alive
+  handleAltTextGeneration(event, SLACK_TOKEN, web).catch((error) => {
+    console.error('[Handler] Background alt text generation error:', error);
+  });
+  
+  console.log('[Handler] Background alt text generation initiated');
 }
 
 /**
@@ -125,11 +116,9 @@ export const handler: Handler = async (
       if (slackEvent.files) {
         const imagesMissingAltText = getImageNamesWithMissingAltText(slackEvent.files);
         if (imagesMissingAltText.length > 0) {
-          console.log(`[Handler] Found ${imagesMissingAltText.length} image(s) missing alt text, triggering background function`);
-          // Trigger background function - don't await, just fire and forget
-          triggerBackgroundFunction(slackEvent).catch((error) => {
-            console.error('[Handler] Error triggering background function:', error);
-          });
+          console.log(`[Handler] Found ${imagesMissingAltText.length} image(s) missing alt text, starting background generation`);
+          // Trigger alt text generation - fire and forget, runs after we return
+          triggerAltTextGeneration(slackEvent);
         }
       }
 
