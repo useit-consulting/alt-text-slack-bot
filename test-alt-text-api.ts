@@ -46,9 +46,9 @@ async function testAltTextAPI() {
       image: imageBase64,
       fileName: path.basename(imagePath),
       prompt:
-        'You are a helpful accessibility expert who generates descriptive alt texts for images in swedish to enable visually impaired users to perceive the image\'s subject and purpose. Focus on the most important visual elements. Do not include the word \'image\' in the alt text. Keep the text to the point, but still descriptive.',
+        'Du är en hjälpsam tillgänglighetsexpert som genererar beskrivande alt-texter för bilder på svenska för att göra det möjligt för synskadade användare att uppfatta bildens motiv och syfte. Fokusera på de viktigaste visuella elementen. Inkludera inte ordet "bild" i alt-texten. Håll texten kortfattad.',
       userPrompt:
-        'Be short and concise. The text must be a maximum of 180 characters long',
+        'Skriv begriplig svenska med enkla ord. Texten får inte vara längre än 180 tecken.',
       model: 'gpt-4.1',
       backend: 'openai',
     };

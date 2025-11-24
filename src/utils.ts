@@ -179,10 +179,10 @@ export async function generateAltTextSuggestion(
         image: imageBase64,
         fileName: fileName,
         prompt:
-          'You are a helpful accessibility expert who generates descriptive alt texts for images in swedish to enable visually impaired users to perceive the image\'s subject and purpose. Focus on the most important visual elements. Do not include the word \'image\' in the alt text. Keep the text to the point, but still descriptive.',
+          'Du är en hjälpsam tillgänglighetsexpert som genererar beskrivande alt-texter för bilder på svenska för att göra det möjligt för synskadade användare att uppfatta bildens motiv och syfte. Fokusera på de viktigaste visuella elementen. Inkludera inte ordet "bild" i alt-texten. Håll texten kortfattad.',
         userPrompt:
-          'Be short and concise. The text must be a maximum of 180 characters long',
-        model: 'gpt-4o-mini',
+          'Skriv begriplig svenska med enkla ord. Texten får inte vara längre än 180 tecken.',
+        model: 'gpt-4.1',
         backend: 'openai',
       };
 
@@ -467,10 +467,10 @@ export const generateResponseText = (
   filesnamesMissingAltText: string[],
   altTextSuggestions?: Map<string, string | null>
 ): string => {
-  const instructions = `On Desktop, activate the *More actions* menu on the image, choose *Edit file details*, and modify the `+
+  /*const instructions = `On Desktop, activate the *More actions* menu on the image, choose *Edit file details*, and modify the `+
   `*Description* field to add alt text. On Android, long press the image and select *Add description*. If adding alt is not supported on your device,`+
-  ` simply provide alt text in a follow-up message. ❤️`
-
+  ` simply provide alt text in a follow-up message. ❤️`*/
+  const instructions = '';
   let suggestionText = '';
   if (altTextSuggestions && altTextSuggestions.size > 0) {
     const suggestions: string[] = [];
@@ -482,17 +482,16 @@ export const generateResponseText = (
     });
     
     if (suggestions.length > 0) {
-      suggestionText = `\n\n*Here's a suggestion:*\n${suggestions.join('\n\n')}\n`;
+      suggestionText = `\n\n*Här är ett förslag på en alt-text:*\n${suggestions.join('\n\n')}\n`;
     }
   }
 
   if (fileCount === 1) {
-    return `Uh oh! The image you shared is missing alt text so it won't be accessible to your teammates `+
-    `who are blind or have low-vision.${suggestionText}\n\n`+ instructions
+    return `Bilden du delade saknar alt-text så den kommer inte att vara tillgänglig för dina kollegor med skärmläsare. ${suggestionText}\n\n`+ instructions
   } else {
     const joinedFileNames = filesnamesMissingAltText.map(name => `\`${name}\``).join(', ')
-    return `Uh oh! The following images are missing alt text: ${joinedFileNames}. `+
-    `This means it won't be accessible to your teammates who are blind or have low-vision.${suggestionText}\n\n`+
+    return `Följande bilder saknar alt-text: ${joinedFileNames}. `+
+    `Det betyder att de inte kommer att vara tillgängliga för dina kollegor med skärmläsare.${suggestionText}\n\n`+
     instructions
   }
 }
