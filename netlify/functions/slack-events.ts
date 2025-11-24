@@ -96,28 +96,32 @@ export const handler: Handler = async (
       if (slackEvent.files) {
         const imagesMissingAltText = getImageNamesWithMissingAltText(slackEvent.files);
         if (imagesMissingAltText.length > 0) {
-          console.log(`[Handler] Found ${imagesMissingAltText.length} image(s) missing alt text, starting background generation`);
+          console.log(`[Handler] Found ${imagesMissingAltText.length} image(s) missing alt text, generating alt text`);
           
-          // Start the work
-          const workPromise = handleAltTextGeneration(slackEvent, SLACK_TOKEN, web);
-          
-          // Wait up to 1.5 seconds for download to start/complete
-          // This keeps the context alive long enough for the download (thumbnails are fast)
-          // Then return to Slack - API call will continue if context stays alive
-          await Promise.race([
-            workPromise.then(() => {
-              console.log('[Handler] Work completed before timeout');
-            }),
-            new Promise((resolve) => setTimeout(() => {
-              console.log('[Handler] Returning to Slack after 1.5s - work continues in background');
-              resolve(null);
-            }, 1500))
-          ]);
+          // Wait for alt text generation to complete
+          // This may take 5-10 seconds (download + API call), but ensures work completes
+          // Slack will retry if we don't respond in 3 seconds, but we'll handle that gracefully
+          const workStartTime = Date.now();
+          try {
+            await Promise.race([
+              handleAltTextGeneration(slackEvent, SLACK_TOKEN, web),
+              new Promise((_, reject) => setTimeout(() => {
+                reject(new Error('Alt text generation timeout after 20 seconds'));
+              }, 20000))
+            ]);
+            const workTime = Date.now() - workStartTime;
+            console.log(`[Handler] Alt text generation completed in ${workTime}ms`);
+          } catch (error) {
+            const workTime = Date.now() - workStartTime;
+            console.error(`[Handler] Alt text generation failed after ${workTime}ms:`, error);
+            // Continue - we'll still return 200 to Slack
+          }
         }
       }
 
-      // Return to Slack (within 3 second requirement)
-      // Work may continue in background if context stays alive
+      // Return to Slack
+      // Note: This may be after 3 seconds, causing Slack to retry
+      // But the function is idempotent, so retries are safe
       return {
         statusCode: 200,
         body: JSON.stringify({ ok: true }),

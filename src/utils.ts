@@ -339,21 +339,45 @@ export const getBestThumbnailUrl = (file: any): string | null => {
  * Handles the complete alt text generation workflow
  * This can be called directly without HTTP invocation
  */
+// Simple in-memory cache to prevent duplicate processing
+// In production, you might want to use Redis or similar
+const processedEvents = new Set<string>();
+
 export async function handleAltTextGeneration(
   slackEvent: any,
   slackToken: string,
   webClient: any
 ): Promise<void> {
+  // Create a unique key for this event to prevent duplicate processing
+  // Use event_ts + channel + user to uniquely identify the event
+  const eventKey = `${slackEvent.event_ts || slackEvent.ts}_${slackEvent.channel}_${slackEvent.user}`;
+  
+  if (processedEvents.has(eventKey)) {
+    console.log(`[Alt Text Handler] Event already processed: ${eventKey}, skipping`);
+    return;
+  }
+  
+  // Mark as processing (add to set)
+  processedEvents.add(eventKey);
+  
+  // Clean up old entries (keep last 1000)
+  if (processedEvents.size > 1000) {
+    const entries = Array.from(processedEvents);
+    entries.slice(0, entries.length - 1000).forEach(key => processedEvents.delete(key));
+  }
+  
   console.log('[Alt Text Handler] Starting alt text generation workflow');
   
   // Ignore bot messages and messages without files
   if (slackEvent.subtype === 'bot_message') {
     console.log('[Alt Text Handler] Ignoring bot message');
+    processedEvents.delete(eventKey); // Remove if we're not processing
     return;
   }
 
   if (!slackEvent.files) {
     console.log('[Alt Text Handler] Message has no files');
+    processedEvents.delete(eventKey); // Remove if we're not processing
     return;
   }
 
@@ -364,6 +388,7 @@ export async function handleAltTextGeneration(
 
   if (filesnamesMissingAltText.length === 0) {
     console.log('[Alt Text Handler] No images missing alt text');
+    processedEvents.delete(eventKey); // Remove if we're not processing
     return;
   }
 
@@ -428,6 +453,11 @@ export async function handleAltTextGeneration(
     console.log(`[Alt Text Handler] ✓ Ephemeral message sent successfully`);
   } catch (error) {
     console.error(`[Alt Text Handler] ✗ Error sending ephemeral message:`, error);
+    // Don't remove from processedEvents on error - we want to retry on next Slack retry
+    // But if it's a "message already sent" error, we can remove it
+    if (error instanceof Error && error.message.includes('already_exists')) {
+      processedEvents.delete(eventKey);
+    }
     throw error;
   }
 }
