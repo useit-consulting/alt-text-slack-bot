@@ -38,26 +38,6 @@ function handleUrlVerification(body: any): { statusCode: number; body: string } 
   };
 }
 
-/**
- * Trigger alt text generation in the background
- * Executes directly without HTTP call - avoids network timeout issues
- */
-function triggerAltTextGeneration(event: any): void {
-  console.log(`[Handler] Starting background alt text generation`);
-  console.log(`[Handler] Event data:`, JSON.stringify({ 
-    eventType: event.type, 
-    hasFiles: !!event.files,
-    fileCount: event.files?.length || 0 
-  }));
-
-  // Execute in background - don't await, just fire and forget
-  // This runs after we return to Slack, keeping the execution context alive
-  handleAltTextGeneration(event, SLACK_TOKEN, web).catch((error) => {
-    console.error('[Handler] Background alt text generation error:', error);
-  });
-  
-  console.log('[Handler] Background alt text generation initiated');
-}
 
 /**
  * Netlify serverless function handler
@@ -117,13 +97,27 @@ export const handler: Handler = async (
         const imagesMissingAltText = getImageNamesWithMissingAltText(slackEvent.files);
         if (imagesMissingAltText.length > 0) {
           console.log(`[Handler] Found ${imagesMissingAltText.length} image(s) missing alt text, starting background generation`);
-          // Trigger alt text generation - fire and forget, runs after we return
-          triggerAltTextGeneration(slackEvent);
+          
+          // Start the work
+          const workPromise = handleAltTextGeneration(slackEvent, SLACK_TOKEN, web);
+          
+          // Wait up to 1.5 seconds for download to start/complete
+          // This keeps the context alive long enough for the download (thumbnails are fast)
+          // Then return to Slack - API call will continue if context stays alive
+          await Promise.race([
+            workPromise.then(() => {
+              console.log('[Handler] Work completed before timeout');
+            }),
+            new Promise((resolve) => setTimeout(() => {
+              console.log('[Handler] Returning to Slack after 1.5s - work continues in background');
+              resolve(null);
+            }, 1500))
+          ]);
         }
       }
 
-      // Return immediately to Slack (within 3 second requirement)
-      // Background function will handle the alt text generation and message sending
+      // Return to Slack (within 3 second requirement)
+      // Work may continue in background if context stays alive
       return {
         statusCode: 200,
         body: JSON.stringify({ ok: true }),
