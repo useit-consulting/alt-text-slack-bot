@@ -83,6 +83,24 @@ export const handler: Handler = async (
     return handleUrlVerification(body);
   }
 
+  // Check if this is a retry from Slack
+  // According to Slack Events API docs, x-slack-retry-num header contains 1, 2, or 3 for retries
+  // If present, this is a retry and we should acknowledge without processing to avoid duplicates
+  const retryNum = event.headers['x-slack-retry-num'];
+  if (retryNum) {
+    const retryAttempt = parseInt(retryNum, 10);
+    if (retryAttempt > 0) {
+      console.log(`[Handler] Detected retry attempt #${retryAttempt} (x-slack-retry-num: ${retryNum}), acknowledging without processing to prevent duplicates`);
+      return {
+        statusCode: 200,
+        headers: {
+          'x-slack-no-retry': '1', // Tell Slack not to retry further
+        },
+        body: JSON.stringify({ ok: true }),
+      };
+    }
+  }
+
   // Handle event callbacks
   if (body.type === 'event_callback') {
     const slackEvent = body.event;
