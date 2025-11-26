@@ -527,7 +527,7 @@ export const generateResponseText = (
   /*const instructions = `On Desktop, activate the *More actions* menu on the image, choose *Edit file details*, and modify the `+
   `*Description* field to add alt text. On Android, long press the image and select *Add description*. If adding alt is not supported on your device,`+
   ` simply provide alt text in a follow-up message. ❤️`*/
-  const instructions = 'Lägg till en beskrivning under *"More actions"* > *Edit file details*. Du kan också skriva beskrivningen som ett vanligt meddelande i tråden.';
+  const instructions = 'Lägg till en beskrivning under *"More actions"* > *"Edit file details"*. På mobil: Gör en long-press på bilden och välj "Add description". Du kan också skriva beskrivningen som ett vanligt meddelande i tråden.';
   let suggestionText = '';
   if (altTextSuggestions && altTextSuggestions.size > 0) {
     const suggestions: string[] = [];

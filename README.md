@@ -46,7 +46,9 @@ This bot is configured to deploy as a serverless function on Netlify. Follow the
 2. Toggle **Enable Events** to **On**
 3. You'll need to set the Request URL later (after deploying to Netlify)
 4. Under **Subscribe to bot events**, click **Add Bot User Event**
-5. Add the event: `message.channels` - This allows the bot to receive messages posted to channels
+5. Add the following events:
+   - `message.channels` - This allows the bot to receive messages posted to public channels
+   - `message.groups` - This allows the bot to receive messages posted to private channels (required for private channels to work)
 6. Click **Save Changes**
 
 ### Step 4: Get Your Signing Secret
@@ -131,7 +133,8 @@ To test the bot locally before deploying:
 
 ### Slack permissions
 
-- [messages:channels](https://api.slack.com/events/message.channels): allows subscription to receive events of messages that are posted to the channel.
+- [message.channels](https://api.slack.com/events/message.channels): allows subscription to receive events of messages that are posted to public channels.
+- [message.groups](https://api.slack.com/events/message.groups): allows subscription to receive events of messages that are posted to private channels (required for private channels to work).
 - [chat:write](https://api.slack.com/scopes/chat:write): send messages as your configured Slack bot.
 - [files:read](https://api.slack.com/scopes/files:read): read and download files (required for alt text generation).
 
