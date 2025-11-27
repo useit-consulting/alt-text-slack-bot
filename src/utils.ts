@@ -341,11 +341,24 @@ export const getBestThumbnailUrl = (file: any): string | null => {
 }
 
 /**
+ * Get the workspace type from environment variable
+ * @return {string} 'useit' or 't12t', defaults to 'useit'
+ */
+function getWorkspaceType(): string {
+  const workspace = process.env.SLACK_WORKSPACE;
+  if (workspace === 't12t') {
+    return 't12t';
+  }
+  return 'useit'; // Default to useit for backward compatibility
+}
+
+/**
  * Returns text based on message file count and count of images with missing alt text
  *
  * @param {number} fileCount The total number of files shared within a single message.
  * @param {string[]} filenamesMissingAltText The total number of images missing alt text within a single message.
  * @param {Map<string, string | null>} altTextSuggestions Map of filename to alt text suggestion (null if generation failed)
+ * @param {string} workspaceType The workspace type ('useit' or 't12t')
  * @return {string} A generated response text.
  */
 /**
@@ -432,53 +445,62 @@ export async function handleAltTextGeneration(
     return;
   }
 
-  // Generate alt text suggestions for each image
+  // Get workspace type to determine if we should generate AI suggestions
+  const workspaceType = getWorkspaceType();
+  const shouldGenerateSuggestions = workspaceType === 'useit';
+
+  // Generate alt text suggestions for each image (only for useit workspace)
   const altTextSuggestions = new Map<string, string | null>();
   const generationStartTime = Date.now();
   let successCount = 0;
   let failureCount = 0;
 
-  for (const file of imagesMissingAltText) {
-    const imageUrl = getBestThumbnailUrl(file);
-    if (imageUrl) {
-      const isThumbnail = imageUrl.includes('files-tmb');
-      console.log(`[Alt Text Handler] Processing image: ${file.name} (using ${isThumbnail ? 'thumbnail' : 'full-size'})`);
-      
-      try {
-        const suggestion = await generateAltTextSuggestion(
-          imageUrl,
-          file.name,
-          slackToken,
-          isThumbnail
-        );
-        altTextSuggestions.set(file.name, suggestion);
-        if (suggestion) {
-          successCount++;
-          console.log(`[Alt Text Handler] ✓ Generated suggestion for ${file.name}`);
-        } else {
+  if (shouldGenerateSuggestions) {
+    console.log(`[Alt Text Handler] Generating AI suggestions for ${workspaceType} workspace`);
+    for (const file of imagesMissingAltText) {
+      const imageUrl = getBestThumbnailUrl(file);
+      if (imageUrl) {
+        const isThumbnail = imageUrl.includes('files-tmb');
+        console.log(`[Alt Text Handler] Processing image: ${file.name} (using ${isThumbnail ? 'thumbnail' : 'full-size'})`);
+        
+        try {
+          const suggestion = await generateAltTextSuggestion(
+            imageUrl,
+            file.name,
+            slackToken,
+            isThumbnail
+          );
+          altTextSuggestions.set(file.name, suggestion);
+          if (suggestion) {
+            successCount++;
+            console.log(`[Alt Text Handler] ✓ Generated suggestion for ${file.name}`);
+          } else {
+            failureCount++;
+            console.log(`[Alt Text Handler] ✗ Failed to generate suggestion for ${file.name}`);
+          }
+        } catch (error) {
           failureCount++;
-          console.log(`[Alt Text Handler] ✗ Failed to generate suggestion for ${file.name}`);
+          console.error(`[Alt Text Handler] ✗ Exception generating suggestion for ${file.name}:`, error);
+          altTextSuggestions.set(file.name, null);
         }
-      } catch (error) {
+      } else {
         failureCount++;
-        console.error(`[Alt Text Handler] ✗ Exception generating suggestion for ${file.name}:`, error);
+        console.warn(`[Alt Text Handler] ✗ No image URL found for file: ${file.name}`);
         altTextSuggestions.set(file.name, null);
       }
-    } else {
-      failureCount++;
-      console.warn(`[Alt Text Handler] ✗ No image URL found for file: ${file.name}`);
-      altTextSuggestions.set(file.name, null);
     }
+
+    const generationTime = Date.now() - generationStartTime;
+    console.log(`[Alt Text Handler] Alt text generation completed in ${generationTime}ms`);
+    console.log(`[Alt Text Handler] Summary: ${successCount} successful, ${failureCount} failed`);
+  } else {
+    console.log(`[Alt Text Handler] Skipping AI suggestions for ${workspaceType} workspace`);
   }
 
-  const generationTime = Date.now() - generationStartTime;
-  console.log(`[Alt Text Handler] Alt text generation completed in ${generationTime}ms`);
-  console.log(`[Alt Text Handler] Summary: ${successCount} successful, ${failureCount} failed`);
-
   // Send message with suggestions
-  const responseText = generateResponseText(slackEvent.files.length, filesnamesMissingAltText, altTextSuggestions);
+  const responseText = generateResponseText(slackEvent.files.length, filesnamesMissingAltText, altTextSuggestions, workspaceType);
   const hasSuggestions = successCount > 0;
-  console.log(`[Alt Text Handler] Generated response text (${responseText.length} chars, includes suggestions: ${hasSuggestions})`);
+  console.log(`[Alt Text Handler] Generated response text (${responseText.length} chars, includes suggestions: ${hasSuggestions}, workspace: ${workspaceType})`);
 
   const parameters = {
     channel: slackEvent.channel,
@@ -522,19 +544,55 @@ export async function handleAltTextGeneration(
 export const generateResponseText = (
   fileCount: number,
   filesnamesMissingAltText: string[],
-  altTextSuggestions?: Map<string, string | null>
+  altTextSuggestions?: Map<string, string | null>,
+  workspaceType: string = 'useit'
 ): string => {
-  /*const instructions = `On Desktop, activate the *More actions* menu on the image, choose *Edit file details*, and modify the `+
-  `*Description* field to add alt text. On Android, long press the image and select *Add description*. If adding alt is not supported on your device,`+
-  ` simply provide alt text in a follow-up message. ❤️`*/
-  const instructions = 'Lägg till en beskrivning under *"More actions"* > *"Edit file details"*. På mobil: Gör en long-press på bilden och välj "Add description". Du kan också skriva beskrivningen som ett vanligt meddelande i tråden.';
+  // t12t workspace variant - no AI suggestions
+  if (workspaceType === 't12t') {
+    const t12tMessage = `Hej! 
+
+Bilden du delade saknar en bildbeskrivning (alt-text) och är inte tillgänglig för alla medlemmar i t12t-slacken.
+
+Gör så här på datorn:
+
+1. Klicka på "More actions"
+
+2. Välj "Edit file details"
+
+Gör så här på Android:
+
+1. Långtryck på bilden
+
+2. Välj "Edit details".
+
+Gör så här på iOS:
+
+1. Långtryck på bilden
+
+2. Välj "Add description"
+
+Du kan också skriva beskrivningen som ett vanligt meddelande i tråden.
+
+Om du har frågor, kontakta @kolombiken
+
+Tips!
+
+[Hur du fixar detta direkt när du lägger till bilden (engelska)](https://slack.com/intl/en-gb/help/articles/4403914924435-Add-descriptions-to-images).
+
+[Mer info om alt-text](https://axesslab.com/alt-texts/)`;
+
+    return t12tMessage;
+  }
+
+  // useit workspace variant - with AI suggestions (original behavior)
+  // Build AI suggestions section if available
   let suggestionText = '';
   if (altTextSuggestions && altTextSuggestions.size > 0) {
     const suggestions: string[] = [];
     filesnamesMissingAltText.forEach((filename) => {
       const suggestion = altTextSuggestions.get(filename);
       if (suggestion) {
-        suggestions.push(`\n\`\`\`${suggestion}\`\`\``);
+        suggestions.push(`\`\`\`${suggestion}\`\`\``);
       }
     });
     
@@ -543,11 +601,17 @@ export const generateResponseText = (
     }
   }
 
+  // Build the main message
+  const instructions = 'Lägg till en beskrivning under *"More actions"* > *"Edit file details"*. På mobil: Gör en long-press på bilden och välj "Add description". Du kan också skriva beskrivningen som ett vanligt meddelande i tråden.';
+  
   if (fileCount === 1) {
-    return `Bilden du delade saknar alt-text så den kommer inte att vara tillgänglig för dina kollegor med skärmläsare. ${instructions}\n\n ${suggestionText}\n\n`
+    const useitMessage = `Bilden du delade saknar alt-text så den kommer inte att vara tillgänglig för dina kollegor med skärmläsare. ${instructions}${suggestionText}
+
+`;
+    return useitMessage;
   } else {
-    const joinedFileNames = filesnamesMissingAltText.map(name => `\`${name}\``).join(', ')
-    return `Följande bilder saknar alt-text: ${joinedFileNames}. `+
-    `De kommer inte att vara tillgängliga för dina kollegor med skärmläsare. ${instructions}\n\n ${suggestionText}`
+    const joinedFileNames = filesnamesMissingAltText.map(name => `\`${name}\``).join(', ');
+    const useitMessage = `Följande bilder saknar alt-text: ${joinedFileNames}. De kommer inte att vara tillgängliga för dina kollegor med skärmläsare. ${instructions}${suggestionText}`;
+    return useitMessage;
   }
 }

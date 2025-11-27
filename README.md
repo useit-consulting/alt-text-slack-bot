@@ -34,6 +34,7 @@ This bot is configured to deploy as a serverless function on Netlify. Follow the
 2. Scroll down to **Scopes** → **Bot Token Scopes**
 3. Add the following scopes:
    - `chat:write` - Allows the bot to send messages
+   - `groups:read` - Allows the bot to read and download files (required for private channels to work)
    - `files:read` - Allows the bot to read and download files (required for alt text generation)
 4. Scroll up and click **Install to Workspace**
 5. Authorize the app in your workspace
@@ -71,6 +72,7 @@ This bot is configured to deploy as a serverless function on Netlify. Follow the
 6. Click **Show advanced** and add environment variables:
    - `SLACK_TOKEN` - Your Bot User OAuth Token (from Step 2)
    - `SLACK_SIGNING_SECRET` - Your Signing Secret (from Step 4)
+   - `SLACK_WORKSPACE` - Workspace type: `useit` (default) or `t12t` (see [Environment variables](#environment-variables) for details)
    - `ALT_TEXT_GENERATION_API_KEY` - API key for the alt text generation service (optional, but required for suggestions)
    - `EXCLUDED_USER_IDS` - Comma-separated list of Slack user IDs to exclude from reminders (optional)
 7. Click **Deploy site**
@@ -84,6 +86,7 @@ This bot is configured to deploy as a serverless function on Netlify. Follow the
    ```bash
    netlify env:set SLACK_TOKEN "xoxb-your-token-here"
    netlify env:set SLACK_SIGNING_SECRET "your-signing-secret-here"
+   netlify env:set SLACK_WORKSPACE "useit"  # or "t12t" for t12t workspace
    netlify env:set ALT_TEXT_GENERATION_API_KEY "your-api-key-here"
    netlify env:set EXCLUDED_USER_IDS "U12345678,U87654321"  # Optional: comma-separated user IDs
    ```
@@ -110,6 +113,56 @@ The bot needs to be invited to channels where you want it to monitor images:
 2. Type `/invite @YourBotName` or use the channel settings to add the bot
 3. The bot will now monitor that channel for images without alt text
 
+## Multi-Workspace Deployment
+
+This bot supports deployment to multiple workspaces (e.g., Useit and T12t) using the same GitHub repository. Each workspace requires its own Netlify deployment with workspace-specific environment variables.
+
+### Deploying to a Second Workspace
+
+To deploy the bot to an additional workspace (e.g., T12t):
+
+1. **Create a separate Slack app** for the new workspace:
+   - Go to [api.slack.com/apps](https://api.slack.com/apps) and create a new app
+   - Follow Steps 1-4 from the main deployment guide above
+   - Each workspace needs its own Slack app with unique tokens
+
+2. **Create a new Netlify site** from the same GitHub repository:
+   - Go to [app.netlify.com](https://app.netlify.com)
+   - Click **Add new site** → **Import an existing project**
+   - Select the same GitHub repository you used for the first deployment
+   - Configure build settings (same as before):
+     - **Build command**: `npm run dist`
+     - **Publish directory**: (leave empty)
+
+3. **Set workspace-specific environment variables**:
+   - `SLACK_TOKEN` - Bot User OAuth Token from the new workspace's Slack app
+   - `SLACK_SIGNING_SECRET` - Signing Secret from the new workspace's Slack app
+   - `SLACK_WORKSPACE` - Set to `t12t` for T12t workspace, or `useit` for Useit workspace
+   - `ALT_TEXT_GENERATION_API_KEY` - Same API key can be reused (optional)
+   - `EXCLUDED_USER_IDS` - Workspace-specific user IDs (optional)
+
+4. **Configure the Slack Events URL**:
+   - After deployment, copy the function URL from the new Netlify site
+   - Configure it in the new workspace's Slack app settings → **Event Subscriptions**
+
+5. **Invite the bot to channels** in the new workspace
+
+### Workspace-Specific Behavior
+
+The `SLACK_WORKSPACE` environment variable controls workspace-specific behavior:
+
+- **`useit`** (default):
+  - Generates AI-powered alt text suggestions
+  - Uses Swedish language for suggestions
+  - Includes suggestion text in the reminder message
+
+- **`t12t`**:
+  - Does not generate AI suggestions (instructions only)
+  - Uses a different message format with workspace-specific instructions
+  - Includes contact information for @kolombiken
+
+Each Netlify deployment operates independently with its own configuration, allowing you to customize behavior per workspace while using the same codebase.
+
 ## Local Development
 
 To test the bot locally before deploying:
@@ -120,6 +173,7 @@ To test the bot locally before deploying:
    ```bash
    export SLACK_TOKEN="xoxb-your-token-here"
    export SLACK_SIGNING_SECRET="your-signing-secret-here"
+   export SLACK_WORKSPACE="useit"  # or "t12t" for t12t workspace
    export ALT_TEXT_GENERATION_API_KEY="your-api-key-here"
    export EXCLUDED_USER_IDS="U12345678,U87654321"  # Optional: comma-separated user IDs
    ```
@@ -144,14 +198,24 @@ The following environment variables must be set in Netlify:
 
 - `SLACK_TOKEN`: Bot User OAuth Token from the **OAuth and Permissions** tab (starts with `xoxb-`).
   - ⚠️ **Not the Client Secret** - Make sure you're copying the "Bot User OAuth Token", not the "Client Secret"
+  - Each workspace requires its own unique token
 - `SLACK_SIGNING_SECRET`: Signing secret from the **Basic Information** tab (under App Credentials).
+  - Each workspace requires its own unique signing secret
+- `SLACK_WORKSPACE`: Workspace type identifier (optional, defaults to `useit`).
+  - Valid values: `useit` or `t12t`
+  - Controls workspace-specific behavior:
+    - `useit`: Generates AI-powered alt text suggestions in Swedish
+    - `t12t`: Sends instructions-only messages without AI suggestions
+  - If not set, defaults to `useit` for backward compatibility
 - `ALT_TEXT_GENERATION_API_KEY`: API key for the alt text generation service (optional).
   - If not set, the bot will still send reminders but won't generate alt text suggestions.
   - The bot will gracefully handle API failures and still send reminders without suggestions.
+  - Only used for `useit` workspace (t12t workspace does not generate suggestions)
 - `EXCLUDED_USER_IDS`: Comma-separated list of Slack user IDs to exclude from alt text reminders (optional).
   - Example: `U12345678,U87654321`
   - To find a user's ID, you can use the Slack API or check the user's profile URL in Slack.
   - Users in this list will not receive alt text reminders when they post images without alt text.
+  - Each workspace can have its own excluded user list
 
 ## Tips
 

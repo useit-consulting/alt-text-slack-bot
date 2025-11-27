@@ -33,10 +33,11 @@ slackEvents.on('message', (event) => {
   if (event.hasOwnProperty('files')) {
     const filesnamesMissingAltText: string[] = getImageNamesWithMissingAltText(event.files)
     if (filesnamesMissingAltText.length > 0) {
+      const workspaceType = process.env.SLACK_WORKSPACE === 't12t' ? 't12t' : 'useit';
       const parameters: ChatPostEphemeralArguments = {
         channel: event.channel,
         user: event.user,
-        text: generateResponseText(event.files.length, filesnamesMissingAltText)
+        text: generateResponseText(event.files.length, filesnamesMissingAltText, undefined, workspaceType)
       }
       if (event.hasOwnProperty('thread_ts')) {
         parameters.thread_ts = event.thread_ts
