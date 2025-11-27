@@ -601,17 +601,26 @@ Om du har frågor, kontakta ${getT12tContactMention()}
     }
   }
 
-  // Build the main message
-  const instructions = 'Lägg till en beskrivning under *"More actions"* > *"Edit file details"*. På mobil: Gör en long-press på bilden och välj "Add description". Du kan också skriva beskrivningen som ett vanligt meddelande i tråden.';
-  
-  if (fileCount === 1) {
-    const useitMessage = `Bilden du delade saknar alt-text så den kommer inte att vara tillgänglig för dina kollegor med skärmläsare. ${instructions}${suggestionText}
+  // Build the main message with improved formatting
+  const introText = fileCount === 1
+    ? 'Bilden du delade saknar alt-text så den kommer inte att vara tillgänglig för dina kollegor med skärmläsare.'
+    : `Följande bilder saknar alt-text: ${filesnamesMissingAltText.map(name => `\`${name}\``).join(', ')}. De kommer inte att vara tillgängliga för dina kollegor med skärmläsare.`;
 
-`;
-    return useitMessage;
-  } else {
-    const joinedFileNames = filesnamesMissingAltText.map(name => `\`${name}\``).join(', ');
-    const useitMessage = `Följande bilder saknar alt-text: ${joinedFileNames}. De kommer inte att vara tillgängliga för dina kollegor med skärmläsare. ${instructions}${suggestionText}`;
-    return useitMessage;
-  }
+  const useitMessage = `${introText}
+
+*Gör så här på datorn:*
+1. Klicka på "More actions"
+2. Välj "Edit file details"
+
+*Gör så här på Android:*
+1. Långtryck på bilden
+2. Välj "Add description"
+
+*Gör så här på iOS:*
+1. Långtryck på bilden
+2. Välj "Add description"
+
+Du kan också skriva beskrivningen som ett vanligt meddelande i tråden.${suggestionText}`;
+
+  return useitMessage;
 }
