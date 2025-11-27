@@ -17,6 +17,16 @@ function getExcludedUserIds(): string[] {
 }
 
 /**
+ * Get the contact mention for t12t workspace
+ * @return {string} User mention string in Slack format
+ */
+function getT12tContactMention(): string {
+  // Replace USER_ID with kolombiken's actual Slack user ID (starts with U)
+  // To find it: right-click kolombiken's profile in Slack → "Copy member ID"
+  return '<@U3STEERQF|kolombiken>';
+}
+
+/**
  * Downloads an image from Slack and generates an alt text suggestion
  *
  * @param {string} imageUrl The URL of the image from Slack (thumbnail or full-size)
@@ -549,37 +559,27 @@ export const generateResponseText = (
 ): string => {
   // t12t workspace variant - no AI suggestions
   if (workspaceType === 't12t') {
-    const t12tMessage = `Hej! 
+    const t12tMessage = `Hej! Bilden du delade saknar en bildbeskrivning (alt-text) och är inte tillgänglig för alla medlemmar i t12t-slacken.
 
-Bilden du delade saknar en bildbeskrivning (alt-text) och är inte tillgänglig för alla medlemmar i t12t-slacken.
-
-Gör så här på datorn:
-
+*Gör så här på datorn:*
 1. Klicka på "More actions"
-
 2. Välj "Edit file details"
 
-Gör så här på Android:
-
+*Gör så här på Android:*
 1. Långtryck på bilden
+2. Välj "Edit details"
 
-2. Välj "Edit details".
-
-Gör så här på iOS:
-
+*Gör så här på iOS:*
 1. Långtryck på bilden
-
 2. Välj "Add description"
 
 Du kan också skriva beskrivningen som ett vanligt meddelande i tråden.
 
-Om du har frågor, kontakta @kolombiken
+Om du har frågor, kontakta ${getT12tContactMention()}
 
-Tips!
-
-[Hur du fixar detta direkt när du lägger till bilden (engelska)](https://slack.com/intl/en-gb/help/articles/4403914924435-Add-descriptions-to-images).
-
-[Mer info om alt-text](https://axesslab.com/alt-texts/)`;
+*Tips!*
+- <https://slack.com/intl/en-gb/help/articles/4403914924435-Add-descriptions-to-images|Hur du fixar detta direkt när du lägger till bilden (engelska)>
+- <https://axesslab.com/alt-texts/|Mer info om alt-text>`;
 
     return t12tMessage;
   }
