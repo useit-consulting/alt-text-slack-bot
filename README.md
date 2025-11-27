@@ -33,13 +33,13 @@ This bot is configured to deploy as a serverless function on Netlify. Follow the
 1. In the left sidebar, go to **OAuth & Permissions**
 2. Scroll down to **Scopes** → **Bot Token Scopes**
 3. Add the following scopes:
+   - `channels:history` - Allows the bot to read public channel history
    - `chat:write` - Allows the bot to send messages
-   - `groups:read` - Allows the bot to read and download files (required for private channels to work)
-   - `files:read` - Allows the bot to read and download files (required for alt text generation)
+   - `groups:history` - Allows the bot to read private channels where it has been invited
+   - `files:read` - Allows the bot to read and download files
 4. Scroll up and click **Install to Workspace**
 5. Authorize the app in your workspace
 6. **Copy the Bot User OAuth Token** (starts with `xoxb-`) - you'll need this for Netlify
-   - ⚠️ **Note**: This is the "Bot User OAuth Token", NOT the "Client Secret". The Client Secret is a different credential used for OAuth installations and is not needed for this bot.
 
 ### Step 3: Enable Events API
 
